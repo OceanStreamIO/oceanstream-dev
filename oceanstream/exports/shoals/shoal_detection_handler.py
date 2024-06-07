@@ -33,7 +33,6 @@ from typing import Tuple
 
 import xarray as xr
 from echopype.mask.api import get_shoal_mask_multichannel
-
 from oceanstream.utils import add_metadata_to_mask, attach_mask_to_dataset
 
 WEILL_DEFAULT_PARAMETERS = {

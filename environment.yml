@@ -3,16 +3,14 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - python=3.9
+  - python=3.11
   - jinja2
   - netcdf4
   - numpy
   - pytz
   - scipy
   - pandas
-  - s3fs
   - requests
-  - aiohttp
   - geopy
   - dask
   - dask-image
@@ -23,10 +21,9 @@ dependencies:
   - psutil>=5.9.1
   - more-itertools==8.13.0
   - pydantic>2
-  - echopype
   - haversine
   - matplotlib
   - pip
   - git
   - pip:
-      - git+https://github.com/OceanStreamIO/echopype.git@next-dev
+      - git+https://github.com/OceanStreamIO/echopype-dev.git@oceanstream

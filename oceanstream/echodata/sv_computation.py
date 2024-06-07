@@ -23,16 +23,13 @@ Usage:
 To compute Sv for a given EchoData object, `ed`, simply call:
 `compute_sv(ed)`
 """
+import echopype as ep
+import xarray as xr
 
 from enum import Enum
 from typing import Any, Optional
-
-import echopype as ep
-import xarray as xr
 from echopype.echodata.echodata import EchoData
 from pydantic import BaseModel, ValidationError, field_validator
-
-from oceanstream.report import end_profiling, start_profiling
 
 
 class SupportedSonarModelsForSv(str, Enum):
@@ -70,15 +67,14 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
     Computes the volume backscattering strength (Sv) from the given echodata.
 
     Parameters:
-    - echodata (EchoData): The EchoData object containing
-    sonar data for computation.
+    - echodata (EchoData): The EchoData object containing sonar data for computation.
     - **kwargs: Additional keyword arguments passed to the Sv computation.
 
     Returns:
     - xr.Dataset: A Dataset containing the computed Sv values.
 
     Example:
-    >>> sv_results = compute_sv(echodata_object)
+    >>> sv_results = compute_sv(echodata)
     >>> print(sv_results)
 
     Notes:
@@ -115,21 +111,8 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
 
 
 def compute_sv_with_encode_mode(
-    echodata: EchoData, encode_mode: str, config, profiling_info=None
+    echodata: EchoData, waveform_mode: str = "CW", encode_mode: str = "power"
 ) -> xr.Dataset:
-    start_time = None
-    start_cpu = None
-    start_memory = None
-
-    if config["profile"]:
-        start_time, start_cpu, start_memory = start_profiling()
-
-    if encode_mode == "power":
-        sv_dataset = compute_sv(echodata)
-    else:
-        sv_dataset = compute_sv(echodata, waveform_mode="CW", encode_mode="power")
-
-    if config["profile"]:
-        profiling_info["compute sv"] = end_profiling(start_time, start_cpu, start_memory)
+    sv_dataset = compute_sv(echodata, waveform_mode=waveform_mode, encode_mode=encode_mode)
 
     return sv_dataset

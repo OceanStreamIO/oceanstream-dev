@@ -1,0 +1,9 @@
+prune .github
+prune build
+prune docs
+exclude *.ini
+exclude *.yaml
+exclude *.yml
+include *.txt
+include oceanstream/settings/*.json
+prune tests

@@ -7,14 +7,10 @@ and performing interpolation to fill missing or NaN values. The module supports 
 inputs and file path inputs, ensuring flexibility in data processing workflows. Additionally,
 it offers edge filling capabilities to enhance the quality of interpolated echograms.
 """
-from pathlib import Path
-from typing import Hashable, Tuple, Union
-
 import numpy as np
 import xarray as xr
-from scipy.interpolate import interp1d
-
-from .processed_data_io import read_processed
+from pathlib import Path
+from typing import Hashable, Tuple, Union
 
 
 def db_to_linear(db: xr.DataArray) -> xr.DataArray:
@@ -50,15 +46,6 @@ def interpolate_sv(
     # Load the dataset
     if isinstance(sv, xr.Dataset):
         dataset = sv
-    else:
-        path_to_file = Path(sv)
-        dataset = read_processed(path_to_file)
-
-    # Retrieve the Sv DataArray from the dataset
-    # sv_dataarray = dataset["Sv"].chunk({"ping_time": -1})
-    # Ensure the data is loaded into memory as a regular array (not Dask chunked)
-    sv_dataarray = dataset["Sv"]
-    sv_dataarray = sv_dataarray.load()
 
     # Initialize an empty list to store the processed channels
     processed_channels = []
@@ -70,22 +57,14 @@ def interpolate_sv(
         # Convert from dB to linear scale
         channel_data_linear = db_to_linear(channel_data)
 
-        # Perform interpolation to fill NaN values in linear scale
-        # Assuming you are interpolating over ping_time and range dimensions
-
+        # Perform interpolation to fill NaN values in linear scale using Xarray's interpolate_na
         interpolated_channel_data_linear = channel_data_linear.interpolate_na(
-            dim="ping_time", method=method
+            dim="ping_time", method=method, use_coordinate=True
         )
 
         if with_edge_fill:
-            # interpolated_channel_data_linear = interpolated_channel_data_linear.interpolate_na(dim='range_sample',
-            #                                                                                   method=method)
-            interpolated_channel_data_linear = interpolated_channel_data_linear.ffill(
-                dim="ping_time"
-            )
-            interpolated_channel_data_linear = interpolated_channel_data_linear.bfill(
-                dim="ping_time"
-            )
+            interpolated_channel_data_linear = interpolated_channel_data_linear.ffill(dim="ping_time")
+            interpolated_channel_data_linear = interpolated_channel_data_linear.bfill(dim="ping_time")
 
         # Convert back to dB scale
         interpolated_channel_data = linear_to_db(interpolated_channel_data_linear)
@@ -93,11 +72,11 @@ def interpolate_sv(
         # Append the processed channel data to the list
         processed_channels.append(interpolated_channel_data)
 
-    # Combine the processed channels back into a single DataArray
+        # Combine the processed channels back into a single DataArray
     interpolated_sv = xr.concat(processed_channels, dim="channel")
 
     # Update the Sv DataArray in the dataset with the interpolated values
-    dataset["Sv_interpolated"] = interpolated_sv
+    dataset["Sv"] = interpolated_sv
 
     return dataset
 
@@ -190,6 +169,8 @@ def resample_xarray(da: xr.DataArray, old_depth_da, new_depth_da, new_range_samp
     - The function assumes 'da' has dimensions 'channel' and 'ping_time'.
     - For 'Sv' data, conversions between decibel and linear scales are performed.
     """
+    from scipy.interpolate import interp1d
+
     interpolated_data_arrays = []
     channel_order_list = []
     time_coord = da["ping_time"]

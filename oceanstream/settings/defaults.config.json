@@ -109,8 +109,12 @@
       }
     }
   },
-  "profile": true,
-  "sonar_model": "EK60",
+  "profile": false,
+  "base_chunk_sizes": {
+    "ping_time": 50,
+    "range_sample": 50
+  },
+  "sonar_model": null,
   "output_folder": "output",
   "plot_echogram": true
 }

@@ -24,10 +24,9 @@ Note:
     IO operations as needed.
 """
 
-from pathlib import Path
-from typing import Union
-
 import xarray as xr
+from typing import Union
+from pathlib import Path
 
 
 def read_processed(file_path: Union[str, Path]) -> xr.Dataset:
@@ -80,7 +79,7 @@ def read_processed(file_path: Union[str, Path]) -> xr.Dataset:
 
 def write_processed(
     sv: xr.Dataset,
-    file_path: Union[str, Path],
+    dir_path: Union[str, Path],
     file_name: str = "",
     file_type: str = "nc",
     overwrite: bool = True,
@@ -90,7 +89,7 @@ def write_processed(
 
     Parameters:
     - sv (xr.Dataset): The xarray Dataset to save.
-    - file_path (Union[str, Path]): The directory path where the file should be saved.
+    - dir_path (Union[str, Path]): The directory path where the file should be saved.
     - file_name (str, optional): The name of the file. Defaults to the name of the Dataset.
     - file_type (str, optional): The type of the file, either 'nc' or 'zarr'. Defaults to 'nc'.
     - overwrite (bool, optional): Whether to overwrite the file if it already exists. Defaults to True.
@@ -108,7 +107,7 @@ def write_processed(
     if not isinstance(sv, xr.Dataset):
         raise TypeError("Expected a xarray Dataset")
 
-    path = Path(file_path)
+    path = Path(dir_path)
     if not path.exists():
         try:
             path.mkdir(parents=True, exist_ok=True)
@@ -139,9 +138,3 @@ def write_processed(
         sv.to_zarr(full_path, mode="w")
     else:
         raise ValueError(f"Could not save file to provided path: {full_path}")
-
-
-if __name__ == "__main__":
-    # Code to be executed if this module is run as a standalone script
-    # For example, for testing purposes
-    pass

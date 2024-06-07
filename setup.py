@@ -1,21 +1,19 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
-# Reading requirements from 'requirements.txt'
-with open("requirements.txt", "r") as f:
-    requirements = [line.strip() for line in f.readlines()]
 
-setup(
-    name="oceanstream",
-    version="0.1",
-    packages=find_packages(),
-    install_requires=requirements,
-    package_data={"oceanstream": ["settings/*.json", "data/*.json"]},
-    include_package_data=True,  # Include package data
-    # Optional metadata
-    author="Pine View Software AS",
-    author_email="hello@pineview.io",
-    description="",
-    license="MIT",
-    keywords="oceanstream echosounder",
-    url="https://github.com/OceanStreamIO/oceanstream",
-)
+def read_requirements(file_path):
+    with open(file_path) as f:
+        lines = f.read().splitlines()
+    _requires = []
+    _links = []
+    for line in lines:
+        if line.startswith("git+"):
+            _links.append(line)
+        else:
+            _requires.append(line)
+    return _requires, _links
+
+
+install_requires, dependency_links = read_requirements('requirements.txt')
+
+setup(install_requires=install_requires)

@@ -165,7 +165,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 # Data files
-test_data/
+tests/test_data/
 *.raw
 *.nc
 *.zarr
@@ -174,3 +174,5 @@ test_data/
 oceanstream/.DS_Store
 # VS code
 .vs/
+requirements-local.txt
+

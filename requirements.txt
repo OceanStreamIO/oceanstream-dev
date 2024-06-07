@@ -1,24 +1,4 @@
-# Regular dependencies
-dask[array,distributed]
-jinja2
-netCDF4>1.6
-numpy
-pynmea2
-pytz
-scipy
+dask[array,distributed]==2024.5.2
 xarray
-pandas
-zarr
-fsspec
-s3fs
-requests
-aiohttp
-xarray-datatree==0.0.6
-psutil>=5.9.1
-more-itertools==8.13.0
-geopy
-pydantic>2
-echopype
-haversine
-dask-image
-matplotlib
+numpy
+git+https://github.com/OceanStreamIO/echopype-dev.git@oceanstream#egg=echopype

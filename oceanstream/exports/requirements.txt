@@ -1,0 +1,4 @@
+haversine
+pandas
+scipy
+numpy

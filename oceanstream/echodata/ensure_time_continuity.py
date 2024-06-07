@@ -24,8 +24,7 @@ def check_reversed_time(
     time_name: str = DEFAULT_TIME_NAME,
 ):
     """
-    Verifies if there are any issues with reversed timestamps in an unprocessed
-    EK60/80 data file
+    Verifies if there are any issues with reversed timestamps in an unprocessed EK60/80 data file
 
     Parameters:
     - ds (xr.Dataset): Unprocessed netcdf file to check for time reversals
@@ -42,6 +41,8 @@ def check_reversed_time(
     """
     has_reversal = exist_reversed_time(ds=ed[dimension], time_name=time_name)
     return has_reversal
+
+
 
 
 def fix_time_reversions(er: xr.Dataset, time_dict=None, win_len: int = 100):
@@ -72,8 +73,3 @@ def fix_time_reversions(er: xr.Dataset, time_dict=None, win_len: int = 100):
             coerce_increasing_time(er[dim], time, win_len)
     return er
 
-
-if __name__ == "__main__":
-    # Code to be executed if this module is run as a standalone script
-    # For example, for testing purposes
-    pass

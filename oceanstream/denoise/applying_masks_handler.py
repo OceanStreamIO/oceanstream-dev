@@ -39,7 +39,7 @@ from typing import Union
 import echopype as ep
 import xarray as xr
 
-from oceanstream.denoise import background_noise_remover
+from .background_noise_remover import apply_remove_background_noise
 
 
 def apply_selected_noise_masks_and_or_noise_removal(
@@ -79,7 +79,7 @@ def apply_selected_noise_masks_and_or_noise_removal(
     For more details on parameters associated with applying a mask and the `background noise removal` process,
     those parameters found within the specific sub-dictionaries, please refer to the documentation for:
     - `echopype.mask.apply_mask`
-    - `oceanstream.L2_calibrated_data.background_noise_remover.apply_remove_background_noise`
+    - `background_noise_remover.apply_remove_background_noise`
 
     Returns:
     - `xr.Dataset`: Processed dataset.
@@ -115,7 +115,7 @@ def apply_selected_noise_masks_and_or_noise_removal(
                 mask_data = ds[process]
                 ds = ep.mask.apply_mask(ds, mask_data, **params)
             elif process == "remove_background_noise":
-                ds = background_noise_remover.apply_remove_background_noise(ds, **params)
+                ds = apply_remove_background_noise(ds, **params)
 
     return ds
 
@@ -126,8 +126,10 @@ def apply_mask_organisms_in_order(ds, processes_to_apply):
     the masks were provided in the input dictionary.
 
     Valid masks:
-        'mask_krill', 'mask_gas_bearing_organisms',
-        'mask_fluid_like_organisms', 'mask_shoal'
+        'mask_krill',
+        'mask_gas_bearing_organisms',
+        'mask_fluid_like_organisms',
+        'mask_shoal'
 
     Parameters:
     - ds (xr.Dataset, str, or pathlib.Path):

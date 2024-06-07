@@ -10,7 +10,7 @@ from echopype.clean.impulse_noise import (
 from oceanstream.denoise.noise_masks import (
     create_impulse_mask,
 )
-from oceanstream.echodata.processed_data_io import write_processed
+from oceanstream.process.processed_data_io import write_processed
 from oceanstream.echodata.sv_interpolation import (
     db_to_linear,
     interpolate_sv,

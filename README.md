@@ -8,7 +8,7 @@
 
 ### Prerequisites
 
-- **Python 3.9**: Ensure Python 3.9 is installed on your system.
+- **Python 3.11**: Ensure Python 3.11 is installed on your system.
 
 ### Setup
 
@@ -60,7 +60,7 @@ This command creates a virtual environment in the `.venv` directory using Python
         ```
     - Create the virtual environment using the Python 3.9 executable managed by `pyenv`:
         ```bash
-        ~/.pyenv/versions/3.9/bin/python -m venv .venv
+        ~/.pyenv/versions/3.11/bin/python -m venv .venv
         ```
 2. **Activate the Virtual Environment:**
 

@@ -4,23 +4,24 @@ from collections.abc import Iterable
 from typing import Dict
 
 import xarray
-from echopype.clean.api import (
-    get_attenuation_mask_multichannel,
-    get_impulse_noise_mask_multichannel,
-    get_transient_noise_mask_multichannel,
-)
-from echopype.mask.api import get_seabed_mask_multichannel
+
+# from echopype.clean.api import (
+#     get_attenuation_mask_multichannel,
+#     get_impulse_noise_mask_multichannel,
+#     get_transient_noise_mask_multichannel,
+# )
+# from echopype.mask.api import get_seabed_mask_multichannel
 
 from oceanstream.utils import add_metadata_to_mask, dict_to_formatted_list
 
 from .types import DenoiseConfig
 
 MASK_CREATION_FUNCTIONS = {
-    "transient": get_transient_noise_mask_multichannel,
-    "attenuation": get_attenuation_mask_multichannel,
-    "impulse": get_impulse_noise_mask_multichannel,
-    "false_seabed": get_seabed_mask_multichannel,
-    "seabed": get_seabed_mask_multichannel,
+    # "transient": get_transient_noise_mask_multichannel,
+    # "attenuation": get_attenuation_mask_multichannel,
+    # "impulse": get_impulse_noise_mask_multichannel,
+    # "false_seabed": get_seabed_mask_multichannel,
+    # "seabed": get_seabed_mask_multichannel,
 }
 
 

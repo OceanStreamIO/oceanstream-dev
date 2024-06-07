@@ -20,10 +20,10 @@ the `add_depth()`, `add_location()`, and `add_splitbeam_angle()` functions from 
 Refer to their respective documentation for details.
 
 """
-
 import warnings
+import numpy as np
 
-from echopype.consolidate import add_depth, add_location, add_splitbeam_angle
+from echopype.consolidate import add_location, add_splitbeam_angle
 from echopype.echodata.echodata import EchoData
 from xarray import Dataset
 
@@ -42,13 +42,14 @@ def enrich_sv_dataset(sv: Dataset, echodata: EchoData, **kwargs) -> Dataset:
     xr.Dataset:
         An enhanced dataset with depth, location, and split-beam angle.
     """
-    # Extract keyword arguments specific to add_depth
+
     depth_keys = ["depth_offset", "tilt", "downward"]
     depth_args = {k: kwargs[k] for k in depth_keys if k in kwargs}
-    # Extract keyword arguments specific to add_location
+
     location_keys = ["nmea_sentence"]
     location_args = {k: kwargs[k] for k in location_keys if k in kwargs}
-    # Extract keyword arguments specific to add_splitbeam_angle
+
+
     splitbeam_keys = [
         "waveform_mode",
         "encode_mode",
@@ -57,24 +58,53 @@ def enrich_sv_dataset(sv: Dataset, echodata: EchoData, **kwargs) -> Dataset:
         "return_dataset",
     ]
     splitbeam_args = {k: kwargs[k] for k in splitbeam_keys if k in kwargs}
-    enriched_sv = sv.copy()
-    # Add depth with error handling
+    enriched_sv = sv
+
     try:
         add_depth(enriched_sv, **depth_args)
     except Exception as e:
         warnings.warn(f"Failed to add depth due to error: {str(e)}")
-    # Add location with error handling
-    try:
-        enriched_sv = add_location(enriched_sv, echodata, **location_args)
-    except Exception as e:
-        warnings.warn(f"Failed to add location due to error: {str(e)}")
-    # Add split-beam angles with error handling
-    try:
-        add_splitbeam_angle(enriched_sv, echodata, **splitbeam_args)
-    except Exception as e:
-        warnings.warn(f"Failed to add split-beam angle due to error: {str(e)}")
+
+    # try:
+    #     enriched_sv = add_location(enriched_sv, echodata, **location_args)
+    # except Exception as e:
+    #     warnings.warn(f"Failed to add location due to error: {str(e)}")
+
+    # try:
+    #     add_splitbeam_angle(enriched_sv, echodata, **splitbeam_args)
+    # except Exception as e:
+    #     warnings.warn(f"Failed to add split-beam angle due to error: {str(e)}")
+    #     traceback.print_exc()
 
     return enriched_sv
+
+
+def add_depth(Sv: Dataset, depth_offset: float = 0, tilt: float = 0, downward: bool = True):
+    """
+    Given an existing Sv dataset, it adds a data variable called depth containing the depth of
+    each ping.
+
+    Parameters:
+    - Sv (xr.Dataset): Volume backscattering strength (Sv) from the given echodata.
+    - depth_offset (float): Depth offset to be added to the depth values.
+    - tilt (float): Tilt angle of the transducer in degrees.
+    - downward (bool): Flag indicating whether the depth is measured downward (True) or upward (False).
+    """
+
+    mult = 1 if downward else -1
+
+    first_channel = Sv["channel"].values[0]
+    first_ping_time = Sv["ping_time"].values[0]
+
+    original_echo_range = Sv["echo_range"].sel(channel=first_channel, ping_time=first_ping_time).values
+
+    # Slice the echo_range to get the desired range of values
+    selected_echo_range = Sv["echo_range"].sel(channel=first_channel, ping_time=first_ping_time)
+    selected_echo_range = selected_echo_range.values.tolist()
+    selected_echo_range = [mult * value * np.cos(tilt / 180 * np.pi) + depth_offset for value in selected_echo_range]
+    Sv = Sv.assign_coords(range_sample=selected_echo_range)
+
+    return Sv
 
 
 def add_seabed_depth(Sv: Dataset):

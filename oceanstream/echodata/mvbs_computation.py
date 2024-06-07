@@ -1,6 +1,6 @@
-from typing import Literal, Optional
-
 import xarray as xr
+
+from typing import Literal, Optional
 from echopype.commongrid.api import compute_MVBS, compute_MVBS_index_binning
 
 

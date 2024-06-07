@@ -86,15 +86,12 @@ def apply_remove_background_noise(
 
         range_sample_num = min(range_sample_nums)
     # Remove noise
-    ds_Sv_corrected = ep.clean.remove_noise(
+    ds_Sv_processed = ep.clean.remove_background_noise(
         ds_Sv,
         ping_num=ping_num,
         range_sample_num=range_sample_num,
         noise_max=noise_max,
         SNR_threshold=SNR_threshold,
     )
-    # Rename Sv to Sv_with_background_noise
-    ds_Sv_corrected = ds_Sv_corrected.rename({"Sv": "Sv_with_background_noise"})
-    # Rename Sv_corrected to Sv
-    ds_Sv_corrected = ds_Sv_corrected.rename({"Sv_corrected": "Sv"})
-    return ds_Sv_corrected
+
+    return ds_Sv_processed

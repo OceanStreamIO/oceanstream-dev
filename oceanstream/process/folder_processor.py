@@ -123,6 +123,15 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def find_raw_files(base_dir):
+    raw_files = []
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.endswith('.raw'):
+                raw_files.append(os.path.join(root, file))
+    return raw_files
+
+
 def convert_raw_files(config_data, workers_count=os.cpu_count()):
     global pool
 
@@ -132,8 +141,7 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
         configure_logging(log_level)
 
         print(f"Starting to convert folder: {dir_path} to Zarr using {workers_count} parallel processes...")
-        raw_files = [os.path.join(dir_path, f) for f in os.listdir(dir_path) if
-                     os.path.isfile(os.path.join(dir_path, f)) and f.endswith('.raw')]
+        raw_files = find_raw_files(dir_path)
         file_info = []
 
         if not raw_files:

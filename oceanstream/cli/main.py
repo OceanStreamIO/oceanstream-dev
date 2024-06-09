@@ -113,16 +113,21 @@ def convert(
     filePath = Path(source)
     configData = initialize(settings, filePath, log_level=log_level)
 
-    if filePath.is_file():
-        from oceanstream.process import convert_raw_file
-        convert_raw_file(filePath, configData)
-        print(f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")
-    elif filePath.is_dir():
-        from oceanstream.process import convert_raw_files
-        convert_raw_files(configData, workers_count=workers_count)
-    else:
-        print(f"[red]❌ The provided path '{source}' is not a valid file/folder.[/red]")
-        sys.exit(1)
+    try:
+        if filePath.is_file():
+            from oceanstream.process import convert_raw_file
+            convert_raw_file(filePath, configData)
+            print(f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")
+        elif filePath.is_dir():
+            from oceanstream.process import convert_raw_files
+            convert_raw_files(configData, workers_count=workers_count)
+        else:
+            print(f"[red]❌ The provided path '{source}' is not a valid file/folder.[/red]")
+    except KeyboardInterrupt:
+        logging.info("KeyboardInterrupt received, terminating processes...")
+    except Exception as e:
+        logging.exception("Error processing folder %s", configData['raw_path'])
+        print(Traceback())
 
 
 @app.command()
@@ -171,7 +176,7 @@ def combine(
                 logging.info("KeyboardInterrupt received, terminating processes...")
             except Exception as e:
                 logging.exception("Error processing folder %s", configData['raw_path'])
-                traceback.print_exc()
+                print(Traceback())
             finally:
                 status.stop()
                 client.close()
@@ -245,7 +250,7 @@ def compute_sv(
             logging.info("KeyboardInterrupt received, terminating processes...")
         except Exception as e:
             logging.exception("Error while processing %s", config_data['raw_path'])
-            traceback.print_exc()
+            print(Traceback())
         finally:
             client.close()
             cluster.close()

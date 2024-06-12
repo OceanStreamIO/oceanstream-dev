@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from rich import print
 from pathlib import Path
-import psutil
 from oceanstream.echodata import check_reversed_time, fix_time_reversions
 
 
@@ -21,7 +20,7 @@ def read_zarr_files(input_folder):
         logging.error("Input folder does not exist: %s", input_folder)
         return
 
-    zarr_files = list(input_path.glob("*.zarr"))
+    zarr_files = list(input_path.rglob("*.zarr"))
     if not zarr_files:
         logging.error("No .zarr files found in directory: %s", input_folder)
         return
@@ -47,7 +46,7 @@ def fix_time(ed):
     return ed
 
 
-def combine_zarr_files(input_folder, zarr_output_file=None, chunks=None, log_level=logging.DEBUG):
+def combine_zarr_files(input_folder, zarr_output_file=None, chunks=None):
     start_time = time.time()
 
     logging.debug("Starting to combine Zarr files from folder: %s", input_folder)

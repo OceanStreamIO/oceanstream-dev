@@ -111,8 +111,8 @@
   },
   "profile": false,
   "base_chunk_sizes": {
-    "ping_time": 50,
-    "range_sample": 50
+    "ping_time": 100,
+    "range_sample": 100
   },
   "sonar_model": null,
   "output_folder": "output",

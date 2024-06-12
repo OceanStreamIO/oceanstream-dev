@@ -1,7 +1,10 @@
 import asyncio
 import os
+import tempfile
 import xarray as xr
 import numpy as np
+import logging
+
 from matplotlib.colors import LinearSegmentedColormap, Colormap
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -287,18 +290,13 @@ def plot_individual_channel_image_only(ds_Sv, channel, output_path, file_base_na
     plt.close()
 
 
-def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name,
-                                       cmap='viridis',
-                                       regions2d=None,
-                                       region_ids=None, region_class=None):
+def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name, echogram_path=None,
+                                       config_data=None, cmap='ocean_r'):
     """Plot and save echogram for a single channel with optional regions and enhancements."""
     full_channel_name = ds_Sv.channel.values[channel]
     channel_name = "_".join(full_channel_name.split()[:3])
 
     plt.figure(figsize=(30, 18))
-    echogram_output_path = os.path.join(output_path, f"{file_base_name}_{channel_name}.png")
-
-    # Apply the same preprocessing steps from _plot_echogram
     ds = ds_Sv
 
     filtered_ds = ds['Sv']
@@ -332,7 +330,7 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
         yincrease=False,
         vmin=-80,
         vmax=-50,
-        cmap='ocean_r',
+        cmap=cmap,
         cbar_kwargs={'label': 'Volume backscattering strength (Sv re 1 m-1)'}
     )
 
@@ -340,8 +338,20 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
     plt.xlabel('Ping time', fontsize=14)
     plt.ylabel('Depth', fontsize=14)
     plt.title(f'Echogram for Channel {channel_name}', fontsize=16, fontweight='bold')
-    plt.savefig(echogram_output_path, dpi=300, bbox_inches='tight')
-    plt.close()
+
+    echogram_file_name = f"{file_base_name}_{channel_name}.png"
+
+    if config_data and 'cloud_storage' in config_data:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+            plt.savefig(temp_file.name, dpi=300, bbox_inches='tight')
+            plt.close()
+            echogram_output_path = os.path.join(echogram_path, echogram_file_name)
+            upload_to_cloud_storage(temp_file.name, echogram_output_path, config_data['cloud_storage'])
+            os.remove(temp_file.name)
+    else:
+        echogram_output_path = os.path.join(output_path, echogram_file_name)
+        plt.savefig(echogram_output_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
 
 def plot_sv_data_parallel(ds_Sv, file_base_name=None, output_path=None, cmap=None, client=None):
@@ -360,15 +370,15 @@ def plot_sv_data_parallel(ds_Sv, file_base_name=None, output_path=None, cmap=Non
     wait(futures)
 
 
-def plot_sv_data(ds_Sv, file_base_name=None, output_path=None, cmap=None, regions2d=None, region_ids=None,
-                 region_class=None):
+def plot_sv_data(ds_Sv, file_base_name=None, output_path=None, echogram_path=None, config_data=None, cmap=None):
     """Plot the echogram data and the regions."""
     if not plt.isinteractive():
         plt.switch_backend('Agg')
 
     for channel in range(ds_Sv.dims['channel']):
-        plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name, cmap, regions2d, region_ids,
-                                           region_class)
+        plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name, echogram_path=echogram_path,
+                                           config_data=config_data,
+                                           cmap='ocean_r')
         # plot_individual_channel_image_only(ds_Sv, channel, output_path, file_base_name, cmap)
         # plot_individual_channel_shaders(ds_Sv=ds_Sv, channel=channel, output_path=output_path,
         #                                 file_base_name=file_base_name, cmap='ocean_r')
@@ -540,3 +550,24 @@ def _plot_region_ids(colors, ds_Sv, idx, labels_added, region_ids, regions2d):
             labels_added.add(label)
         idx += 1
     return idx
+
+
+def upload_to_cloud_storage(local_path, remote_path, cloud_storage_config):
+    storage_type = cloud_storage_config['storage_type']
+    container_name = cloud_storage_config['container_name']
+    storage_options = cloud_storage_config['storage_options']
+
+    if storage_type == 'azure':
+        upload_to_azure_blob(local_path, remote_path, container_name, storage_options)
+    else:
+        raise ValueError(f"Unsupported storage type: {storage_type}")
+
+
+def upload_to_azure_blob(local_path, remote_path, container_name, storage_options):
+    from azure.storage.blob import BlobServiceClient
+    blob_service_client = BlobServiceClient.from_connection_string(storage_options['connection_string'])
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=remote_path)
+
+    with open(local_path, "rb") as data:
+        blob_client.upload_blob(data, overwrite=True)
+    logging.info(f"Uploaded {local_path} to Azure Blob Storage as {remote_path}")

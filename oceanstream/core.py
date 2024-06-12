@@ -14,6 +14,9 @@ logging.basicConfig(level="ERROR", format='%(asctime)s - %(levelname)s - %(messa
 
 def initialize(settings, file_path, log_level=None):
     logging.debug(f"Initializing with settings: {settings}, file path: {file_path}, log level: {log_level}")
+    if "config" not in settings:
+        settings["config"] = ""
+
     config_data = load_config(settings["config"])
     config_data["raw_path"] = file_path
 
@@ -26,6 +29,9 @@ def initialize(settings, file_path, log_level=None):
 
     if settings["output_folder"] is not None:
         config_data["output_folder"] = settings["output_folder"]
+
+    if settings['cloud_storage'] is not None:
+        config_data['cloud_storage'] = settings['cloud_storage']
 
     return config_data
 
@@ -103,8 +109,7 @@ def combine(source, output=None, config=None, log_level="WARNING", chunks=None):
 
         file_name = f"{Path(dir_path).stem}-combined.zarr"
         zarr_output_file = os.path.join(config_data['output_folder'], file_name)
-        logging.info(
-            f"Combining Zarr files to {zarr_output_file}; navigate to http://localhost:8787/status for progress")
+        logging.info(f"Combining Zarr files to {zarr_output_file}")
 
         combine_zarr_files(dir_path, zarr_output_file=zarr_output_file, chunks=chunks)
         logging.info("Zarr files have been combined successfully.")
@@ -113,18 +118,24 @@ def combine(source, output=None, config=None, log_level="WARNING", chunks=None):
 
 
 def compute_sv(source, output=None, workers_count=None, sonar_model=DEFAULT_SONAR_MODEL, plot_echogram=False,
-               depth_offset=0.0, waveform_mode="CW", config=None, log_level="WARNING", chunks=None):
-    logging.debug("Starting compute_sv function")
+               depth_offset=0.0, waveform_mode="CW", log_level="WARNING", chunks=None, config=None,
+               processed_count_var=None):
     settings_dict = {
-        "config": config,
         "sonar_model": sonar_model,
         "output_folder": output or DEFAULT_OUTPUT_FOLDER
     }
+
+    if config is not None:
+        settings_dict.update(config)
+        # settings_dict["config"] = ''
+
     file_path = Path(source)
     config_data = initialize(settings_dict, file_path, log_level=log_level)
 
     if chunks:
         config_data['chunks'] = chunks
+    else:
+        config_data['chunks'] = config_data.get('base_chunk_sizes', None)
 
     if file_path.is_dir() and source.endswith(".zarr"):
         logging.debug(f"Computing Sv for Zarr root file: {file_path}")
@@ -136,7 +147,8 @@ def compute_sv(source, output=None, workers_count=None, sonar_model=DEFAULT_SONA
         logging.debug(f"Processing Zarr files in directory: {file_path}")
         from oceanstream.process import process_zarr_files
 
-        process_zarr_files(config_data, workers_count=workers_count, chunks=chunks, plot_echogram=plot_echogram,
+        process_zarr_files(config_data, workers_count=workers_count, chunks=chunks,
+                           processed_count_var=processed_count_var, plot_echogram=plot_echogram,
                            waveform_mode=waveform_mode, depth_offset=depth_offset)
     else:
         logging.error(f"The provided path '{source}' is not a valid Zarr root.")

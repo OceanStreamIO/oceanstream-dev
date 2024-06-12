@@ -15,7 +15,6 @@ from oceanstream.plot import plot_sv_data_with_progress, plot_sv_data
 from oceanstream.echodata import get_campaign_metadata
 from .process import compute_sv, process_file_with_progress, read_file_with_progress
 
-
 install(show_locals=True, width=120)
 
 
@@ -23,13 +22,14 @@ def get_chunk_sizes(var_dims, chunk_sizes):
     return {dim: chunk_sizes[dim] for dim in var_dims if dim in chunk_sizes}
 
 
-def compute_Sv_to_zarr(echodata, config_data, chunks=None, plot_echogram=False, **kwargs):
+def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_echogram=False, **kwargs):
     """
     Compute Sv from echodata and save to zarr file.
 
     Args:
         echodata:
         config_data:
+        base_path:
         chunks:
         plot_echogram:
         **kwargs:
@@ -42,11 +42,21 @@ def compute_Sv_to_zarr(echodata, config_data, chunks=None, plot_echogram=False, 
     encode_mode = waveform_mode == "CW" and "power" or "complex"
     Sv = compute_sv(echodata, encode_mode=encode_mode, **kwargs)
 
-    parent_folder = os.path.join(Path(config_data["output_folder"]), file_path.stem)
-    if not os.path.exists(parent_folder):
-        os.makedirs(parent_folder)
+    if base_path:
+        relative_path = file_path.relative_to(base_path)
 
-    output_path = os.path.join(parent_folder, f"{file_path.stem}_Sv.zarr")
+        if relative_path.parent != ".":
+            zarr_path = Path(relative_path.parent) / file_path.stem
+        else:
+            zarr_path = relative_path.stem
+    else:
+        zarr_path = file_path.stem
+
+    output_path = Path(config_data["output_folder"]) / zarr_path
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    echogram_path = zarr_path
+    zarr_file_name = f"{file_path.stem}_Sv.zarr"
 
     if chunks is not None:
         for var in Sv.data_vars:
@@ -56,14 +66,15 @@ def compute_Sv_to_zarr(echodata, config_data, chunks=None, plot_echogram=False, 
             if 'chunks' in Sv[var].encoding:
                 del Sv[var].encoding['chunks']
 
-    print("Removing background noise...")
     ds_processed = Sv
+
     # ds_processed = apply_background_noise_removal(Sv, config=config_data)
-    ds_processed.to_zarr(output_path)
+    write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data, output_path)
 
     if plot_echogram:
         try:
-            plot_sv_data(ds_processed, file_base_name=file_path.stem, output_path=parent_folder)
+            plot_sv_data(ds_processed, file_base_name=file_path.stem, output_path=output_path,
+                         echogram_path=echogram_path, config_data=config_data)
         except Exception as e:
             logging.exception(f"Error plotting echogram for {file_path}:")
             raise e
@@ -71,13 +82,22 @@ def compute_Sv_to_zarr(echodata, config_data, chunks=None, plot_echogram=False, 
     return output_path
 
 
+def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):
+    if 'cloud_storage' in config_data:
+        store = get_chunk_store(config_data['cloud_storage'], Path(zarr_path) / zarr_file_name)
+    else:
+        store = os.path.join(output_path, zarr_file_name)
+
+    ds_processed.to_zarr(store, mode='w')
+
+
 async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mode="CW", depth_offset=0):
     try:
         with Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn()
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn()
         ) as progress:
             print(f"[green] Processing file: {config_data['raw_path']}[/green]")
             read_task = progress.add_task("[cyan]Reading raw file data...", total=100)
@@ -117,20 +137,42 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
         logging.exception(f"Error processing file {config_data['raw_path']}: {e}")
 
 
-def convert_raw_file(file_path, config_data, progress_queue=None):
+def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None):
     logging.debug("Starting processing of file: %s", file_path)
     from oceanstream.echodata import read_file
 
     try:
-        file_config_data = {**config_data, 'raw_path': Path(file_path)}
+        file_path_obj = Path(file_path)
+        file_config_data = {**config_data, 'raw_path': file_path_obj}
+
+        if base_path:
+            relative_path = file_path_obj.relative_to(base_path)
+            relative_path = relative_path.parent
+        else:
+            relative_path = file_path_obj.name
+
+        output_path = Path(config_data["output_folder"]) / relative_path
+        output_path.mkdir(parents=True, exist_ok=True)
+
         echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
-        echodata.to_zarr(save_path=config_data["output_folder"], overwrite=True, parallel=False)
+        echodata.to_zarr(save_path=output_path, overwrite=True, parallel=False)
 
         if progress_queue:
             progress_queue.put(file_path)
     except Exception as e:
         logging.error("Error processing file %s", file_path)
         print(Traceback())
+
+
+def get_chunk_store(storage_config, path):
+    if storage_config['storage_type'] == 'azure':
+        from adlfs import AzureBlobFileSystem
+        azfs = AzureBlobFileSystem(**storage_config['storage_options'])
+
+        return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
+
+    else:
+        raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 
 
 def compute_single_file(config_data, **kwargs):

@@ -7,6 +7,7 @@ import sys
 import traceback
 import warnings
 
+from dask import delayed, compute
 from pathlib import Path
 from datetime import datetime
 from rich import print
@@ -21,8 +22,10 @@ from .process import compute_sv
 from .processed_data_io import write_processed
 from .file_processor import convert_raw_file, compute_single_file
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings("ignore", module="echopype")
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 pool = None
 
 
@@ -174,7 +177,8 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
             pool = Pool(processes=workers_count)
 
             # Partial function with config_data, progress_queue and other arguments
-            process_func = partial(convert_raw_file, config_data=config_data, progress_queue=progress_queue)
+            process_func = partial(convert_raw_file, config_data=config_data, progress_queue=progress_queue,
+                                   base_path=dir_path)
 
             # Run the progress updater in a separate process
             progress_updater = Process(target=update_progress, args=(progress_queue, len(sorted_files), log_level))
@@ -200,14 +204,25 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
         logging.exception("Error processing folder %s: %s", config_data['raw_path'], e)
 
 
-def process_single_zarr_file(file_path, config_data, chunks=None, plot_echogram=False, waveform_mode="CW",
-                             depth_offset=0):
+def process_single_zarr_file(file_path, config_data, base_path=None, chunks=None, plot_echogram=False, waveform_mode="CW",
+                             depth_offset=0, total_files=1, processed_count_var=None):
     file_config_data = {**config_data, 'raw_path': Path(file_path)}
-    compute_single_file(file_config_data, chunks=chunks, plot_echogram=plot_echogram,
+
+    processed_count = None
+
+    if processed_count_var:
+        processed_count = processed_count_var.get() + 1
+        processed_count_var.set(processed_count)
+
+    compute_single_file(file_config_data, base_path=base_path, chunks=chunks, plot_echogram=plot_echogram,
                         waveform_mode=waveform_mode, depth_offset=depth_offset)
 
+    if processed_count:
+        print(f"Processed file: {file_path}. {processed_count}/{total_files}")
 
-def process_zarr_files(config_data, workers_count=os.cpu_count(), status=None, chunks=None, plot_echogram=False,
+
+def process_zarr_files(config_data, workers_count=os.cpu_count(), status=None, chunks=None, processed_count_var=None,
+                       plot_echogram=False,
                        waveform_mode="CW", depth_offset=0):
     dir_path = config_data['raw_path']
     zarr_files = read_zarr_files(dir_path)
@@ -216,24 +231,26 @@ def process_zarr_files(config_data, workers_count=os.cpu_count(), status=None, c
         logging.error("No valid .zarr files with creation time found in directory: %s", dir_path)
         return
 
-    logging.info(f"Found {len(zarr_files)} Zarr files in directory: {dir_path}")
+    if status:
+        status.update(f"Found {len(zarr_files)} Zarr files in directory: {dir_path}\n")
 
-    # def wrapped_process_single_zarr_file(file_path):
-    #     print(f"Computing Sv for {file_path}...\n")
-    #     return process_single_zarr_file(file_path, config_data,
-    #                                     chunks=chunks, plot_echogram=plot_echogram, waveform_mode=waveform_mode,
-    #                                     depth_offset=depth_offset)
-    #
-    # # Use Dask bag to parallelize the processing
-    # bag = db.from_sequence(zarr_files, npartitions=workers_count)
-    # bag = bag.map(wrapped_process_single_zarr_file)
-    #
-    # # Compute the results
-    # results = bag.compute()
+    tasks = []
+    total_files = len(zarr_files)
+
+    if processed_count_var:
+        processed_count_var.set(0)
+
     for file_path in zarr_files:
-        status.update(f"Computing Sv for {file_path}...\n")
-        process_single_zarr_file(file_path, config_data, chunks=chunks, plot_echogram=plot_echogram,
-                                 waveform_mode=waveform_mode, depth_offset=depth_offset)
+        if status:
+            status.update(f"Computing Sv for {file_path}...\n")
+        task = delayed(process_single_zarr_file)(file_path, config_data, chunks=chunks, base_path=dir_path,
+                                                 plot_echogram=plot_echogram,
+                                                 waveform_mode=waveform_mode, depth_offset=depth_offset,
+                                                 total_files=total_files, processed_count_var=processed_count_var)
+        tasks.append(task)
+
+    # Execute all tasks in parallel
+    compute(*tasks)
 
     logging.info("✅ All files have been processed")
 
@@ -249,6 +266,7 @@ def from_filename(file_name):
         return creation_time
 
     return None
+
 
 
 signal.signal(signal.SIGINT, signal_handler)

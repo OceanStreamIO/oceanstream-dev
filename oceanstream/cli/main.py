@@ -11,7 +11,7 @@ from pathlib import Path
 from rich import print
 from rich.traceback import install, Traceback
 from oceanstream.settings import load_config
-from dask.distributed import LocalCluster, Client
+from dask.distributed import LocalCluster, Client, Variable
 from rich.console import Console
 
 
@@ -195,6 +195,7 @@ def compute_sv(
         sonar_model: str = typer.Option(DEFAULT_SONAR_MODEL, help="Sonar model used to collect the data",
                                         show_choices=["AZFP", "EK60", "ES70", "EK80", "ES80", "EA640", "AD2CP"]),
         plot_echogram: bool = typer.Option(False, help="Plot the echogram after processing"),
+        use_dask: bool = typer.Option(False, help="Start a Local Dask cluster for parallel processing (always enabled for multiple files)"),
         depth_offset: float = typer.Option(0.0, help="Depth offset for the echogram plot"),
         waveform_mode: str = typer.Option("CW", help="Waveform mode, can be either CW or BB",
                                           show_choices=["CW", "BB"]),
@@ -213,11 +214,14 @@ def compute_sv(
     file_path = Path(source)
     config_data = initialize(settings_dict, file_path, log_level=log_level)
 
+    client = None
     console = Console()
+    single_file = file_path.is_dir() and source.endswith(".zarr")
     with console.status("Processing...", spinner="dots") as status:
         status.start()
-        cluster = LocalCluster(n_workers=workers_count, threads_per_worker=1)
-        client = Client(cluster)
+        if use_dask or not single_file:
+            cluster = LocalCluster(n_workers=workers_count, threads_per_worker=1)
+            client = Client(cluster)
 
         try:
             if file_path.is_dir() and source.endswith(".zarr"):
@@ -235,13 +239,14 @@ def compute_sv(
                     f"[blue] Processing zarr files in {file_path}...[/blue] – navigate to "
                     f"http://localhost:8787/status for progress")
                 from oceanstream.process import process_zarr_files
-
+                processed_count_var = Variable('processed_count', client)
                 process_zarr_files(config_data,
                                    workers_count=workers_count,
                                    status=status,
                                    chunks=config_data.get('base_chunk_sizes'),
                                    plot_echogram=plot_echogram,
                                    waveform_mode=waveform_mode,
+                                   processed_count_var=processed_count_var,
                                    depth_offset=depth_offset)
             else:
                 print(f"[red]❌ The provided path '{source}' is not a valid Zarr root.[/red]")
@@ -252,8 +257,9 @@ def compute_sv(
             logging.exception("Error while processing %s", config_data['raw_path'])
             print(Traceback())
         finally:
-            client.close()
-            cluster.close()
+            if use_dask:
+                client.close()
+                cluster.close()
             status.stop()
 
 

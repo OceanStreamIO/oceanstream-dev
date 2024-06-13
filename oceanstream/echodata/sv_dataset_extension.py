@@ -96,8 +96,6 @@ def add_depth(Sv: Dataset, depth_offset: float = 0, tilt: float = 0, downward: b
     first_channel = Sv["channel"].values[0]
     first_ping_time = Sv["ping_time"].values[0]
 
-    original_echo_range = Sv["echo_range"].sel(channel=first_channel, ping_time=first_ping_time).values
-
     # Slice the echo_range to get the desired range of values
     selected_echo_range = Sv["echo_range"].sel(channel=first_channel, ping_time=first_ping_time)
     selected_echo_range = selected_echo_range.values.tolist()

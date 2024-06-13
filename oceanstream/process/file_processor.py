@@ -12,7 +12,8 @@ from rich.traceback import install, Traceback
 from rich.progress import Progress, TimeElapsedColumn, BarColumn, TextColumn
 
 from oceanstream.plot import plot_sv_data_with_progress, plot_sv_data
-from oceanstream.echodata import get_campaign_metadata
+from oceanstream.echodata import get_campaign_metadata, read_file
+
 from .process import compute_sv, process_file_with_progress, read_file_with_progress
 
 install(show_locals=True, width=120)
@@ -37,27 +38,35 @@ def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_
     Returns:
         str: Path to the zarr file.
     """
-    file_path = config_data["raw_path"]
     waveform_mode = kwargs.get("waveform_mode", "CW")
     encode_mode = waveform_mode == "CW" and "power" or "complex"
     Sv = compute_sv(echodata, encode_mode=encode_mode, **kwargs)
 
-    if base_path:
-        relative_path = file_path.relative_to(base_path)
+    if config_data.get('raw_path') is not None:
+        file_path = config_data["raw_path"]
+        file_base_name = file_path.stem
+        if base_path:
+            relative_path = file_path.relative_to(base_path)
 
-        if relative_path.parent != ".":
-            zarr_path = Path(relative_path.parent) / file_path.stem
+            if relative_path.parent != ".":
+                zarr_path = Path(relative_path.parent) / file_base_name
+            else:
+                zarr_path = relative_path.stem
         else:
-            zarr_path = relative_path.stem
-    else:
-        zarr_path = file_path.stem
+            zarr_path = file_base_name
 
-    output_path = Path(config_data["output_folder"]) / zarr_path
-    output_path.mkdir(parents=True, exist_ok=True)
+        output_path = Path(config_data["output_folder"]) / zarr_path
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        zarr_file_name = f"{file_base_name}_Sv.zarr"
+    else:
+        zarr_path = base_path
+        zarr_file_name = f"{zarr_path}_Sv.zarr"
+        output_path = None
+        file_base_name = None
+        file_path = None
 
     echogram_path = zarr_path
-    zarr_file_name = f"{file_path.stem}_Sv.zarr"
-
     if chunks is not None:
         for var in Sv.data_vars:
             var_chunk_sizes = get_chunk_sizes(Sv[var].dims, chunks)
@@ -73,7 +82,7 @@ def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_
 
     if plot_echogram:
         try:
-            plot_sv_data(ds_processed, file_base_name=file_path.stem, output_path=output_path,
+            plot_sv_data(ds_processed, file_base_name=file_base_name, output_path=output_path,
                          echogram_path=echogram_path, config_data=config_data)
         except Exception as e:
             logging.exception(f"Error plotting echogram for {file_path}:")
@@ -139,7 +148,6 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
 
 def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None):
     logging.debug("Starting processing of file: %s", file_path)
-    from oceanstream.echodata import read_file
 
     try:
         file_path_obj = Path(file_path)
@@ -151,28 +159,22 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
         else:
             relative_path = file_path_obj.name
 
-        output_path = Path(config_data["output_folder"]) / relative_path
-        output_path.mkdir(parents=True, exist_ok=True)
-
         echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
-        echodata.to_zarr(save_path=output_path, overwrite=True, parallel=False)
+
+        if 'cloud_storage' in config_data:
+            file_name = file_path_obj.stem + ".zarr"
+            store = get_chunk_store(config_data['cloud_storage'], Path(relative_path) / file_name)
+            echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
+        else:
+            output_path = Path(config_data["output_folder"]) / relative_path
+            output_path.mkdir(parents=True, exist_ok=True)
+            echodata.to_zarr(save_path=output_path, overwrite=True, parallel=False)
 
         if progress_queue:
             progress_queue.put(file_path)
     except Exception as e:
         logging.error("Error processing file %s", file_path)
         print(Traceback())
-
-
-def get_chunk_store(storage_config, path):
-    if storage_config['storage_type'] == 'azure':
-        from adlfs import AzureBlobFileSystem
-        azfs = AzureBlobFileSystem(**storage_config['storage_options'])
-
-        return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
-
-    else:
-        raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 
 
 def compute_single_file(config_data, **kwargs):
@@ -191,3 +193,14 @@ def compute_single_file(config_data, **kwargs):
         end_time = time.time()
         total_time = end_time - start_time
         print(f"Total time taken: {total_time:.2f} seconds")
+
+
+def get_chunk_store(storage_config, path):
+    if storage_config['storage_type'] == 'azure':
+        from adlfs import AzureBlobFileSystem
+        azfs = AzureBlobFileSystem(**storage_config['storage_options'])
+
+        return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
+
+    else:
+        raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")

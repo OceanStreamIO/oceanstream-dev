@@ -5,6 +5,7 @@ import sys
 
 from pathlib import Path
 from oceanstream.settings import load_config
+from oceanstream.process import convert_raw_file, convert_raw_files, compute_single_file
 
 DEFAULT_OUTPUT_FOLDER = "output"
 DEFAULT_SONAR_MODEL = "EK60"
@@ -12,13 +13,20 @@ DEFAULT_SONAR_MODEL = "EK60"
 logging.basicConfig(level="ERROR", format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def initialize(settings, file_path, log_level=None):
+def initialize(settings, file_path=None, log_level=None, chunks=None):
     logging.debug(f"Initializing with settings: {settings}, file path: {file_path}, log level: {log_level}")
     if "config" not in settings:
         settings["config"] = ""
 
     config_data = load_config(settings["config"])
-    config_data["raw_path"] = file_path
+
+    if chunks:
+        config_data['chunks'] = chunks
+    else:
+        config_data['chunks'] = config_data.get('base_chunk_sizes', None)
+
+    if file_path is not None:
+        config_data["raw_path"] = file_path
 
     if log_level is not None:
         logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
@@ -27,10 +35,19 @@ def initialize(settings, file_path, log_level=None):
     if 'sonar_model' in settings and settings["sonar_model"] is not None:
         config_data["sonar_model"] = settings["sonar_model"]
 
-    if settings["output_folder"] is not None:
+    if settings.get('plot_echogram', None) is not None:
+        config_data["plot_echogram"] = settings["plot_echogram"]
+
+    if settings.get('waveform_mode', None) is not None:
+        config_data["waveform_mode"] = settings["waveform_mode"]
+
+    if settings.get('depth_offset', None) is not None:
+        config_data["depth_offset"] = settings["depth_offset"]
+
+    if settings.get("output_folder", None) is not None:
         config_data["output_folder"] = settings["output_folder"]
 
-    if settings['cloud_storage'] is not None:
+    if settings.get('cloud_storage', None) is not None:
         config_data['cloud_storage'] = settings['cloud_storage']
 
     return config_data
@@ -63,27 +80,29 @@ def process_raw_file(source, output=None, sonar_model=None, plot_echogram=False,
         sys.exit(1)
 
 
-def convert(source, output=None, workers_count=None, config=None, log_level="WARNING", chunks=None):
+def convert(source, output=None, base_path=None, workers_count=None, config=None, log_level="WARNING", chunks=None):
     logging.debug("Starting convert function")
     settings = {
-        "config": config,
         "output_folder": output or DEFAULT_OUTPUT_FOLDER
     }
+
+    if config is not None:
+        settings.update(config)
 
     file_path = Path(source)
     config_data = initialize(settings, file_path, log_level=log_level)
 
     if chunks:
         config_data['chunks'] = chunks
+    else:
+        config_data['chunks'] = config_data.get('base_chunk_sizes', None)
 
     if file_path.is_file():
         logging.debug(f"Converting raw file: {file_path}")
-        from oceanstream.process import convert_raw_file
-        convert_raw_file(file_path, config_data)
+        convert_raw_file(file_path, config_data, base_path=base_path)
         logging.info(f"Converted raw file {source} to Zarr and wrote output to: {config_data['output_folder']}")
     elif file_path.is_dir():
         logging.debug(f"Converting raw files in directory: {file_path}")
-        from oceanstream.process import convert_raw_files
         convert_raw_files(config_data, workers_count=workers_count)
     else:
         logging.error(f"The provided path '{source}' is not a valid file/folder.")
@@ -127,7 +146,6 @@ def compute_sv(source, output=None, workers_count=None, sonar_model=DEFAULT_SONA
 
     if config is not None:
         settings_dict.update(config)
-        # settings_dict["config"] = ''
 
     file_path = Path(source)
     config_data = initialize(settings_dict, file_path, log_level=log_level)
@@ -139,8 +157,6 @@ def compute_sv(source, output=None, workers_count=None, sonar_model=DEFAULT_SONA
 
     if file_path.is_dir() and source.endswith(".zarr"):
         logging.debug(f"Computing Sv for Zarr root file: {file_path}")
-        from oceanstream.process import compute_single_file
-
         compute_single_file(config_data, chunks=chunks, plot_echogram=plot_echogram, waveform_mode=waveform_mode,
                             depth_offset=depth_offset)
     elif file_path.is_dir():

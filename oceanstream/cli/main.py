@@ -1,5 +1,3 @@
-import traceback
-
 import typer
 import asyncio
 import os

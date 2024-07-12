@@ -295,8 +295,6 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
     """Plot and save echogram for a single channel with optional regions and enhancements."""
     full_channel_name = ds_Sv.channel.values[channel]
     channel_name = "_".join(full_channel_name.split()[:3])
-
-    plt.figure(figsize=(30, 18))
     ds = ds_Sv
 
     filtered_ds = ds['Sv']
@@ -305,9 +303,12 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
 
     if 'channel' in filtered_ds.dims:
         filtered_ds = filtered_ds.assign_coords({'frequency': ds.frequency_nominal})
-        filtered_ds = filtered_ds.swap_dims({'channel': 'frequency'})
-        if filtered_ds.frequency.size == 1:
-            filtered_ds = filtered_ds.isel(frequency=0)
+        try:
+            filtered_ds = filtered_ds.swap_dims({'channel': 'frequency'})
+            if filtered_ds.frequency.size == 1:
+                filtered_ds = filtered_ds.isel(frequency=0)
+        except Exception as e:
+            print(f"Error in swapping dims while plotting echogram: {e}")
 
     # Update axis labels
     filtered_ds['ping_time'].attrs = {
@@ -323,7 +324,7 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
     filtered_ds = filtered_ds.dropna(dim='ping_time', how='all')
     filtered_ds = filtered_ds.dropna(dim='range_sample', how='all')
 
-    # Create the echogram using xarray's plot method
+    plt.figure(figsize=(30, 18))
     filtered_ds.isel(frequency=channel).T.plot(
         x='ping_time',
         y='range_sample',
@@ -353,6 +354,8 @@ def plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_na
         plt.savefig(echogram_output_path, dpi=300, bbox_inches='tight')
         plt.close()
 
+    return echogram_output_path
+
 
 def plot_sv_data_parallel(ds_Sv, file_base_name=None, output_path=None, cmap=None, client=None):
     """Plot the echogram data and the regions."""
@@ -375,14 +378,17 @@ def plot_sv_data(ds_Sv, file_base_name=None, output_path=None, echogram_path=Non
     if not plt.isinteractive():
         plt.switch_backend('Agg')
 
+    echogram_files = []
     for channel in range(ds_Sv.dims['channel']):
-        plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name, echogram_path=echogram_path,
-                                           config_data=config_data,
-                                           cmap='ocean_r')
+        echogram_file_path = plot_individual_channel_simplified(ds_Sv, channel, output_path, file_base_name,
+                                                                echogram_path=echogram_path,
+                                                                config_data=config_data,
+                                                                cmap='ocean_r')
+        echogram_files.append(echogram_file_path)
         # plot_individual_channel_image_only(ds_Sv, channel, output_path, file_base_name, cmap)
         # plot_individual_channel_shaders(ds_Sv=ds_Sv, channel=channel, output_path=output_path,
         #                                 file_base_name=file_base_name, cmap='ocean_r')
-
+    return echogram_files
 
 async def plot_sv_data_with_progress(ds_Sv, file_base_name=None, output_path=None, progress=None, plot_task=None,
                                      cmap='viridis',

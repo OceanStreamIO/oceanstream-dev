@@ -93,6 +93,7 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
         raise ValueError(str(e))
     # Check if the sonar model is supported
     sonar_model = echodata.sonar_model
+
     try:
         SupportedSonarModelsForSv(sonar_model)
     except ValueError:
@@ -103,6 +104,7 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
                             {list(SupportedSonarModelsForSv)}."
         )
     # Compute Sv
+    print(f"Computing Sv for {sonar_model} sonar model...", kwargs)
     Sv = ep.calibrate.compute_Sv(echodata, **kwargs)
     # Check if the computed Sv is empty
     if Sv["Sv"].values.size == 0:
@@ -113,6 +115,12 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
 def compute_sv_with_encode_mode(
     echodata: EchoData, waveform_mode: str = "CW", encode_mode: str = "power"
 ) -> xr.Dataset:
-    sv_dataset = compute_sv(echodata, waveform_mode=waveform_mode, encode_mode=encode_mode)
+    try:
+        sv_dataset = compute_sv(echodata, waveform_mode=waveform_mode, encode_mode=encode_mode)
+    except Exception as e:
+        print(f"\n--------Error computing Sv with encode mode: {e}--------\n")
+        import traceback
+        traceback.print_exc()
+        raise e
 
     return sv_dataset

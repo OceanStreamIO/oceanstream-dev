@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -6,6 +7,7 @@ import pandas as pd
 from IPython.display import display, HTML
 import re
 from datetime import datetime, timedelta
+from typing import Dict, Any, List
 
 
 split_by_day_pattern = r'D(\d{8})-T(\d{6})'
@@ -157,3 +159,68 @@ def format_duration(duration):
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
+def append_gps_data(gps_data: List[Dict[str, Any]], gps_json_file_path: Path, filename: str):
+    """
+    Append GPS data to a JSON file.
+
+    Args:
+        gps_data (List[Dict[str, Any]]): The GPS data to append.
+        gps_json_file_path (Path): The path to the JSON file where the GPS data will be saved.
+        filename (str): The filename to associate with the GPS data.
+    """
+    gps_entry = {
+        "filename": filename,
+        "gps_data": gps_data
+    }
+
+    # Check if the file already exists
+    if gps_json_file_path.exists():
+        with open(gps_json_file_path, 'r+') as json_file:
+            try:
+                # Load existing data
+                existing_data = json.load(json_file)
+            except json.JSONDecodeError:
+                existing_data = []
+
+            # Ensure existing data is a list
+            if not isinstance(existing_data, list):
+                existing_data = [existing_data]
+
+            # Append new data
+            existing_data.append(gps_entry)
+
+            # Move file pointer to the beginning
+            json_file.seek(0)
+            json_file.truncate()
+
+            # Write updated data
+            json.dump(existing_data, json_file, indent=4)
+    else:
+        # Create a new file with the GPS data
+        with open(gps_json_file_path, 'w') as json_file:
+            json.dump([gps_entry], json_file, indent=4)
+
+
+def save_output_data(output_message: dict, output_data_path: Path):
+    """
+    Save the output message data to a JSON file.
+
+    Args:
+        output_message (dict): The output message data.
+        output_data_path (Path): The path to the JSON file where the output data will be saved.
+    """
+    # Check if the JSON file already exists and read its content
+    if output_data_path.exists():
+        with open(output_data_path, "r") as json_file:
+            existing_data = json.load(json_file)
+    else:
+        existing_data = []
+
+    # Append the new data to the existing data
+    existing_data.append(output_message)
+
+    # Write the updated data back to the JSON file
+    with open(output_data_path, "w") as json_file:
+        json.dump(existing_data, json_file, indent=4)

@@ -1,9 +1,12 @@
+from asyncio import CancelledError
+
 import typer
 import asyncio
 import os
 import logging
 import sys
 import warnings
+import dask
 
 from pathlib import Path
 from rich import print
@@ -11,7 +14,7 @@ from rich.traceback import install, Traceback
 from oceanstream.settings import load_config
 from dask.distributed import LocalCluster, Client, Variable
 from rich.console import Console
-
+from oceanstream.process import compute_and_export_single_file, process_zarr_files
 
 install(show_locals=False, width=120)
 
@@ -30,6 +33,11 @@ BANNER = """
 
 logging.basicConfig(level="ERROR", format='%(asctime)s - %(levelname)s - %(message)s')
 
+dask.config.set({
+    'distributed.comm.timeouts.connect': '60s',  # Increase the connection timeout
+    'distributed.comm.timeouts.tcp': '120s',     # Increase the TCP timeout
+    'distributed.comm.retry.count': 0
+})
 
 def initialize(settings, file_path, log_level=None):
     config_data = load_config(settings["config"])
@@ -115,7 +123,8 @@ def convert(
         if filePath.is_file():
             from oceanstream.process import convert_raw_file
             convert_raw_file(filePath, configData)
-            print(f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")
+            print(
+                f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")
         elif filePath.is_dir():
             from oceanstream.process import convert_raw_files
             convert_raw_files(configData, workers_count=workers_count)
@@ -193,7 +202,8 @@ def compute_sv(
         sonar_model: str = typer.Option(DEFAULT_SONAR_MODEL, help="Sonar model used to collect the data",
                                         show_choices=["AZFP", "EK60", "ES70", "EK80", "ES80", "EA640", "AD2CP"]),
         plot_echogram: bool = typer.Option(False, help="Plot the echogram after processing"),
-        use_dask: bool = typer.Option(False, help="Start a Local Dask cluster for parallel processing (always enabled for multiple files)"),
+        use_dask: bool = typer.Option(False,
+                                      help="Start a Local Dask cluster for parallel processing (always enabled for multiple files)"),
         depth_offset: float = typer.Option(0.0, help="Depth offset for the echogram plot"),
         waveform_mode: str = typer.Option("CW", help="Waveform mode, can be either CW or BB",
                                           show_choices=["CW", "BB"]),
@@ -207,6 +217,87 @@ def compute_sv(
     settings_dict = {
         "config": config,
         "sonar_model": sonar_model,
+        "output_folder": output or DEFAULT_OUTPUT_FOLDER
+    }
+    dask.config.set({'distributed.comm.retry.count': 1})
+
+    file_path = Path(source)
+    config_data = initialize(settings_dict, file_path, log_level=log_level)
+    single_file = file_path.is_dir() and source.endswith(".zarr")
+
+    client = None
+    cluster = None
+
+    if use_dask or not single_file:
+        cluster = LocalCluster(n_workers=workers_count, threads_per_worker=1)
+        client = Client(cluster)
+
+    try:
+        if file_path.is_dir() and source.endswith(".zarr"):
+            console = Console()
+            with console.status("Processing...", spinner="dots") as status:
+                status.start()
+                status.update(
+                    f"[blue] Computing Sv for {file_path}...[/blue]" + use_dask * "– navigate to "
+                                                                                  "http://localhost:8787/status for "
+                                                                                  "progress")
+
+                chunks = None
+                if use_dask:
+                    chunks = config_data.get('base_chunk_sizes')
+
+                compute_and_export_single_file(config_data,
+                                               chunks=chunks,
+                                               plot_echogram=plot_echogram,
+                                               waveform_mode=waveform_mode,
+                                               depth_offset=depth_offset)
+
+                status.stop()
+                print("✅ The file have been processed successfully.")
+        elif file_path.is_dir():
+            print(f"Dashboard available at {client.dashboard_link}")
+            process_zarr_files(config_data,
+                               client,
+                               workers_count=workers_count,
+                               chunks=config_data.get('base_chunk_sizes'),
+                               plot_echogram=plot_echogram,
+                               waveform_mode=waveform_mode,
+                               depth_offset=depth_offset)
+        else:
+            print(f"[red]❌ The provided path '{source}' is not a valid Zarr root.[/red]")
+            sys.exit(1)
+    except KeyboardInterrupt:
+        logging.info("KeyboardInterrupt received, terminating processes...")
+    except Exception as e:
+        logging.exception("Error while processing %s", config_data['raw_path'])
+        print(Traceback())
+    finally:
+        if client is not None:
+            client.close()
+
+        if cluster is not None:
+            cluster.close()
+
+
+@app.command()
+def export_location(
+        source: str = typer.Option(..., help="Path to a Zarr root file or a directory containing Zarr files"),
+        output: str = typer.Option(None,
+                                   help="Destination path for saving the exported data. Defaults to a predefined "
+                                        "directory if not specified."),
+        workers_count: int = typer.Option(os.cpu_count(), help="Number of CPU workers to use for parallel processing"),
+        use_dask: bool = typer.Option(False,
+                                      help="Start a Local Dask cluster for parallel processing (always enabled for "
+                                           "multiple files)"),
+        config: str = typer.Option(None, help="Path to a configuration file"),
+        log_level: str = typer.Option("WARNING", help="Set the logging level",
+                                      show_choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+):
+    """
+    Given a Zarr dataset containing Sv data, exports the GPS location data to a JSON file.
+    """
+    settings_dict = {
+        "config": config,
         "output_folder": output or DEFAULT_OUTPUT_FOLDER
     }
     file_path = Path(source)
@@ -225,27 +316,17 @@ def compute_sv(
             if file_path.is_dir() and source.endswith(".zarr"):
                 status.update(
                     f"[blue] Computing Sv for {file_path}...[/blue] – navigate to http://localhost:8787/status for progress")
-                from oceanstream.process import compute_single_file
-
-                compute_single_file(config_data,
-                                    chunks=config_data.get('base_chunk_sizes'),
-                                    plot_echogram=plot_echogram,
-                                    waveform_mode=waveform_mode,
-                                    depth_offset=depth_offset)
+                # TODO: Implement export_location_json
             elif file_path.is_dir():
                 status.update(
                     f"[blue] Processing zarr files in {file_path}...[/blue] – navigate to "
                     f"http://localhost:8787/status for progress")
-                from oceanstream.process import process_zarr_files
-                processed_count_var = Variable('processed_count', client)
-                process_zarr_files(config_data,
-                                   workers_count=workers_count,
-                                   status=status,
-                                   chunks=config_data.get('base_chunk_sizes'),
-                                   plot_echogram=plot_echogram,
-                                   waveform_mode=waveform_mode,
-                                   processed_count_var=processed_count_var,
-                                   depth_offset=depth_offset)
+                from oceanstream.process import export_location_from_zarr_files
+
+                export_location_from_zarr_files(config_data,
+                                                workers_count=workers_count,
+                                                client=client,
+                                                chunks=config_data.get('base_chunk_sizes'))
             else:
                 print(f"[red]❌ The provided path '{source}' is not a valid Zarr root.[/red]")
                 sys.exit(1)
@@ -259,11 +340,6 @@ def compute_sv(
                 client.close()
                 cluster.close()
             status.stop()
-
-
-@app.command()
-def export():
-    typer.echo("Export data...")
 
 
 def main():

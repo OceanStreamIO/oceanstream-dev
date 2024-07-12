@@ -2,6 +2,7 @@ import os
 import tempfile
 import botocore
 import boto3
+from pathlib import Path
 from asyncio import CancelledError
 from rich import print
 from rich.traceback import install, Traceback
@@ -76,8 +77,8 @@ def list_raw_files_from_bucket(bucket_name, prefix):
 def download_file_from_bucket(bucket_name, s3_key, local_dir):
     """Download a file from S3."""
     s3_client = boto3.client('s3', config=Config(signature_version=botocore.UNSIGNED))
-    local_path = os.path.join(local_dir, os.path.basename(s3_key))
-    s3_client.download_file(bucket_name, s3_key, local_path)
+    local_path = Path(local_dir) / os.path.basename(s3_key)
+    s3_client.download_file(bucket_name, s3_key, str(local_path))
 
     return local_path
 

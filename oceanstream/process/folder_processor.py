@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import time
@@ -5,9 +6,13 @@ import re
 import signal
 import sys
 import traceback
+import inspect
 import warnings
+from queue import Queue
+from threading import Thread
 
 from dask import delayed, compute
+from distributed import Semaphore
 from pathlib import Path
 from datetime import datetime
 from rich import print
@@ -20,7 +25,8 @@ from oceanstream.echodata import get_campaign_metadata, read_file
 from .combine_zarr import read_zarr_files
 from .process import compute_sv
 from .processed_data_io import write_processed
-from .file_processor import convert_raw_file, compute_single_file
+from .file_processor import convert_raw_file, compute_single_file, compute_and_export_single_file, \
+    export_location_from_Sv_dataset
 
 # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 warnings.filterwarnings("ignore", module="echopype")
@@ -117,6 +123,12 @@ def process_single_file(file_path, config_data, progress_queue,
         logging.exception("Error processing file %s: %s", file_path, e)
 
 
+def print_call_stack():
+    stack = inspect.stack()
+    for frame in stack:
+        print(f"File: {frame.filename}, Line: {frame.lineno}, Function: {frame.function}")
+
+
 def signal_handler(sig, frame):
     global pool
     print('Terminating processes...')
@@ -204,26 +216,20 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
         logging.exception("Error processing folder %s: %s", config_data['raw_path'], e)
 
 
-def process_single_zarr_file(file_path, config_data, base_path=None, chunks=None, plot_echogram=False, waveform_mode="CW",
-                             depth_offset=0, total_files=1, processed_count_var=None):
+def process_single_zarr_file(file_path, config_data, base_path=None, chunks=None, plot_echogram=False,
+                             waveform_mode="CW",
+                             depth_offset=0):
     file_config_data = {**config_data, 'raw_path': Path(file_path)}
+    print(f"Processing file: {file_path}")
+    # print_call_stack()
 
-    processed_count = None
-
-    if processed_count_var:
-        processed_count = processed_count_var.get() + 1
-        processed_count_var.set(processed_count)
-
-    compute_single_file(file_config_data, base_path=base_path, chunks=chunks, plot_echogram=plot_echogram,
-                        waveform_mode=waveform_mode, depth_offset=depth_offset)
-
-    if processed_count:
-        print(f"Processed file: {file_path}. {processed_count}/{total_files}")
+    compute_and_export_single_file(file_config_data, base_path=base_path, chunks=chunks, plot_echogram=plot_echogram,
+                                   waveform_mode=waveform_mode, depth_offset=depth_offset)
+    print(f"Finished processing file: {file_path}")
 
 
-def process_zarr_files(config_data, workers_count=os.cpu_count(), status=None, chunks=None, processed_count_var=None,
-                       plot_echogram=False,
-                       waveform_mode="CW", depth_offset=0):
+def process_zarr_files(config_data, client, workers_count=None, chunks=None, plot_echogram=False, waveform_mode="CW", depth_offset=0):
+    from tqdm.auto import tqdm
     dir_path = config_data['raw_path']
     zarr_files = read_zarr_files(dir_path)
 
@@ -231,28 +237,115 @@ def process_zarr_files(config_data, workers_count=os.cpu_count(), status=None, c
         logging.error("No valid .zarr files with creation time found in directory: %s", dir_path)
         return
 
-    if status:
-        status.update(f"Found {len(zarr_files)} Zarr files in directory: {dir_path}\n")
+    max_concurrent_tasks = workers_count or os.cpu_count()
+    total_files = len(zarr_files)
+    print(f"Found {total_files} Zarr files in directory: {dir_path}\n")
+    progress_bar = tqdm(total=total_files, desc="Processing Files", unit="file", ncols=100)
+    task_queue = Queue()
+    results = []
+
+    def process_file_task(file_path):
+        @delayed
+        def process_task():
+            process_single_zarr_file(file_path, config_data, chunks=chunks, base_path=dir_path,
+                                     plot_echogram=plot_echogram, waveform_mode=waveform_mode,
+                                     depth_offset=depth_offset)
+            return file_path
+
+        return process_task()
+
+    def worker():
+        while True:
+            file_path = task_queue.get()
+            if file_path is None:
+                break
+            try:
+                task = process_file_task(file_path)
+                result = task.compute()
+                results.append(result)
+                progress_bar.update()
+                print(f"Task completed: {file_path}")
+            except Exception as e:
+                print(f"Error processing file: {file_path}, error: {e}")
+            finally:
+                task_queue.task_done()
+
+    # Enqueue initial tasks
+    for file_path in zarr_files:
+        task_queue.put(file_path)
+
+    # Create and start worker threads
+    threads = []
+    for _ in range(max_concurrent_tasks):
+        thread = Thread(target=worker)
+        thread.start()
+        threads.append(thread)
+
+    # Block until all tasks are done
+    task_queue.join()
+
+    # Stop workers
+    for _ in range(max_concurrent_tasks):
+        task_queue.put(None)
+    for thread in threads:
+        thread.join()
+
+    progress_bar.close()
+    print("✅ All files have been processed")
+
+
+def export_location_from_zarr_files(config_data, client=None, workers_count=os.cpu_count(), chunks=None):
+    from tqdm.auto import tqdm
+    semaphore = Semaphore(max_leases=workers_count)
 
     tasks = []
-    total_files = len(zarr_files)
 
-    if processed_count_var:
-        processed_count_var.set(0)
+    dir_path = config_data['raw_path']
+    zarr_files = read_zarr_files(dir_path)
+    progress_bar = tqdm(total=len(zarr_files), desc="Processing Files", unit="file", ncols=100)
+
+    def update_progress_fn(*args):
+        progress_bar.update()
+
+    if not zarr_files:
+        logging.error("No valid .zarr files with creation time found in directory: %s", dir_path)
+        return
+
+    logging.info(f"Found {len(zarr_files)} Zarr files in directory: {dir_path}\n")
 
     for file_path in zarr_files:
-        if status:
-            status.update(f"Computing Sv for {file_path}...\n")
-        task = delayed(process_single_zarr_file)(file_path, config_data, chunks=chunks, base_path=dir_path,
-                                                 plot_echogram=plot_echogram,
-                                                 waveform_mode=waveform_mode, depth_offset=depth_offset,
-                                                 total_files=total_files, processed_count_var=processed_count_var)
+        task = delayed(export_location_from_Sv_dataset)(file_path, config_data, chunks=chunks)
         tasks.append(task)
 
     # Execute all tasks in parallel
-    compute(*tasks)
+    futures = client.compute(tasks)
 
+    for future in futures:
+        future.add_done_callback(update_progress_fn)
+
+    client.gather(futures)
+    progress_bar.close()
     logging.info("✅ All files have been processed")
+    merge_json_files(dir_path)
+
+
+def merge_json_files(output_folder):
+    json_files = list(Path(output_folder).glob("gps_data_*.json"))
+    all_data = []
+
+    for json_file in json_files:
+        with open(json_file, 'r') as file:
+            data = json.load(file)
+            if isinstance(data, list):
+                all_data.extend(data)
+            else:
+                all_data.append(data)
+
+    merged_json_file_path = Path(output_folder) / "gps_data.json"
+    with open(merged_json_file_path, 'w') as merged_file:
+        json.dump(all_data, merged_file, indent=4)
+
+    logging.info(f"✅ Merged {len(json_files)} JSON files into {merged_json_file_path}")
 
 
 def from_filename(file_name):
@@ -266,7 +359,6 @@ def from_filename(file_name):
         return creation_time
 
     return None
-
 
 
 signal.signal(signal.SIGINT, signal_handler)

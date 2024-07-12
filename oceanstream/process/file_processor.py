@@ -1,10 +1,15 @@
+import json
 import logging
 import os
 import sys
 import time
 import traceback
+import shutil
+from asyncio import CancelledError
+
 import echopype as ep
 
+import xarray as xr
 from pathlib import Path
 from rich import print
 from rich.traceback import install, Traceback
@@ -13,14 +18,87 @@ from rich.progress import Progress, TimeElapsedColumn, BarColumn, TextColumn
 
 from oceanstream.plot import plot_sv_data_with_progress, plot_sv_data
 from oceanstream.echodata import get_campaign_metadata, read_file
+from oceanstream.denoise import apply_background_noise_removal
+from oceanstream.exports import export_location_json
 
+from .utils import save_output_data, append_gps_data
 from .process import compute_sv, process_file_with_progress, read_file_with_progress
 
-install(show_locals=True, width=120)
+install(show_locals=False, width=120)
 
 
-def get_chunk_sizes(var_dims, chunk_sizes):
-    return {dim: chunk_sizes[dim] for dim in var_dims if dim in chunk_sizes}
+def compute_single_file(config_data, **kwargs):
+    file_path = config_data["raw_path"]
+    start_time = time.time()
+    chunks = kwargs.get("chunks")
+    echodata = ep.open_converted(file_path, chunks=chunks)
+
+    try:
+        output_path = compute_Sv_to_zarr(echodata, config_data, **kwargs)
+        print(f"[blue]✅ Computed Sv and saved to: {output_path}[/blue]")
+    except Exception as e:
+        logging.error(f"Error computing Sv for {file_path}")
+        print(Traceback())
+    finally:
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"Total time taken: {total_time:.2f} seconds")
+
+
+def compute_and_export_single_file(config_data, **kwargs):
+    file_path = config_data["raw_path"]
+    chunks = kwargs.get("chunks")
+    echodata = ep.open_converted(file_path, chunks=chunks)
+    print(f"File {file_path} opened successfully.")
+
+    try:
+        file_data = []
+        output_path, ds_processed, echogram_files = compute_Sv_to_zarr(echodata, config_data, **kwargs)
+        gps_data = export_location_json(ds_processed)
+
+        output_message = {
+            "filename": str(output_path),  # Convert PosixPath to string
+            "file_npings": len(ds_processed["ping_time"].values),
+            "file_nsamples": len(ds_processed["range_sample"].values),
+            "file_start_time": str(ds_processed["ping_time"].values[0]),
+            "file_end_time": str(ds_processed["ping_time"].values[-1]),
+            "file_freqs": ",".join(map(str, ds_processed["frequency_nominal"].values)),
+            "file_start_depth": str(ds_processed["range_sample"].values[0]),
+            "file_end_depth": str(ds_processed["range_sample"].values[-1]),
+            "file_start_lat": echodata["Platform"]["latitude"].values[0],
+            "file_start_lon": echodata["Platform"]["longitude"].values[0],
+            "file_end_lat": echodata["Platform"]["latitude"].values[-1],
+            "file_end_lon": echodata["Platform"]["longitude"].values[-1],
+            "echogram_files": echogram_files
+        }
+        file_data.append(output_message)
+
+        json_file_path = Path(config_data["output_folder"]) / "output_data.json"
+        gps_json_file_path = Path(config_data["output_folder"]) / "gps_data.json"
+
+        save_output_data(output_message, json_file_path)
+        append_gps_data(gps_data, gps_json_file_path, str(output_path))
+
+        echogram_folder = Path(config_data["output_folder"]) / "echograms"
+        echogram_folder.mkdir(parents=True, exist_ok=True)
+
+        for png_file in Path(output_path).glob("*.png"):
+            shutil.copy(png_file, echogram_folder / png_file.name)
+    except CancelledError as e:
+        logging.info("CancelledError received, terminating processes...")
+    except (ValueError, RuntimeError) as e:
+        logging.error(f"Error computing Sv for {file_path}")
+        print(Traceback())
+
+
+def export_location_from_Sv_dataset(store, config_data, chunks=None):
+    dataset = xr.open_zarr(store, chunks=chunks, consolidated=True)
+    file_name = Path(store).stem
+    file_name = file_name.replace("_Sv", "")
+    gps_data = export_location_json(dataset)
+
+    gps_json_file_path = Path(config_data["output_folder"]) / f"gps_data_{file_name}.json"
+    append_gps_data(gps_data, gps_json_file_path, file_name)
 
 
 def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_echogram=False, **kwargs):
@@ -42,6 +120,13 @@ def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_
     encode_mode = waveform_mode == "CW" and "power" or "complex"
     Sv = compute_sv(echodata, encode_mode=encode_mode, **kwargs)
 
+    ds_processed = Sv
+    # ds_processed = apply_background_noise_removal(Sv, config=config_data)
+
+    output_path = None
+    file_base_name = None
+    file_path = None
+
     if config_data.get('raw_path') is not None:
         file_path = config_data["raw_path"]
         file_base_name = file_path.stem
@@ -62,43 +147,30 @@ def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_
     else:
         zarr_path = base_path
         zarr_file_name = f"{zarr_path}_Sv.zarr"
-        output_path = None
-        file_base_name = None
-        file_path = None
 
     echogram_path = zarr_path
     if chunks is not None:
         for var in Sv.data_vars:
-            var_chunk_sizes = get_chunk_sizes(Sv[var].dims, chunks)
+            var_chunk_sizes = _get_chunk_sizes(Sv[var].dims, chunks)
             Sv[var] = Sv[var].chunk(var_chunk_sizes)
             # Remove chunk encoding to avoid conflicts
             if 'chunks' in Sv[var].encoding:
                 del Sv[var].encoding['chunks']
-
-    ds_processed = Sv
-
-    # ds_processed = apply_background_noise_removal(Sv, config=config_data)
+    print(f"\nWriting zarr file to: {output_path}/{zarr_file_name}")
     write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data, output_path)
 
+    echogram_files = None
     if plot_echogram:
         try:
-            plot_sv_data(ds_processed, file_base_name=file_base_name, output_path=output_path,
-                         echogram_path=echogram_path, config_data=config_data)
+            echogram_files = plot_sv_data(ds_processed, file_base_name=file_base_name, output_path=output_path,
+                                          echogram_path=echogram_path, config_data=config_data)
         except Exception as e:
-            logging.exception(f"Error plotting echogram for {file_path}:")
-            raise e
+            logging.error(f"Error plotting echogram for {file_path}: {e}")
 
-    return output_path
+    return output_path, ds_processed, echogram_files
 
 
-def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):
-    if 'cloud_storage' in config_data:
-        store = get_chunk_store(config_data['cloud_storage'], Path(zarr_path) / zarr_file_name)
-    else:
-        store = os.path.join(output_path, zarr_file_name)
-
-    ds_processed.to_zarr(store, mode='w')
-
+####################################################################################################
 
 async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mode="CW", depth_offset=0):
     try:
@@ -163,7 +235,7 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
 
         if 'cloud_storage' in config_data:
             file_name = file_path_obj.stem + ".zarr"
-            store = get_chunk_store(config_data['cloud_storage'], Path(relative_path) / file_name)
+            store = _get_chunk_store(config_data['cloud_storage'], Path(relative_path) / file_name)
             echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
         else:
             output_path = Path(config_data["output_folder"]) / relative_path
@@ -177,25 +249,16 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
         print(Traceback())
 
 
-def compute_single_file(config_data, **kwargs):
-    file_path = config_data["raw_path"]
-    start_time = time.time()
-    chunks = kwargs.get("chunks")
-    echodata = ep.open_converted(file_path, chunks=chunks)
+def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):
+    if 'cloud_storage' in config_data:
+        store = _get_chunk_store(config_data['cloud_storage'], Path(zarr_path) / zarr_file_name)
+    else:
+        store = os.path.join(output_path, zarr_file_name)
 
-    try:
-        output_path = compute_Sv_to_zarr(echodata, config_data, **kwargs)
-        print(f"[blue]✅ Computed Sv and saved to: {output_path}[/blue]")
-    except Exception as e:
-        logging.error(f"Error computing Sv for {file_path}")
-        print(Traceback())
-    finally:
-        end_time = time.time()
-        total_time = end_time - start_time
-        print(f"Total time taken: {total_time:.2f} seconds")
+    ds_processed.to_zarr(store, mode='w')
 
 
-def get_chunk_store(storage_config, path):
+def _get_chunk_store(storage_config, path):
     if storage_config['storage_type'] == 'azure':
         from adlfs import AzureBlobFileSystem
         azfs = AzureBlobFileSystem(**storage_config['storage_options'])
@@ -204,3 +267,7 @@ def get_chunk_store(storage_config, path):
 
     else:
         raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
+
+
+def _get_chunk_sizes(var_dims, chunk_sizes):
+    return {dim: chunk_sizes[dim] for dim in var_dims if dim in chunk_sizes}

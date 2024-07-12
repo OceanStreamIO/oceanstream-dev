@@ -4,6 +4,7 @@ from oceanstream.echodata import (
     read_file,
     compute_sv_with_encode_mode,
     enrich_sv_dataset,
+    interpolate_sv,
     regrid_dataset
 )
 
@@ -41,13 +42,16 @@ async def process_file_with_progress(progress, compute_task_id, echodata, encode
 def compute_sv(echodata, encode_mode="power", waveform_mode="CW", depth_offset=0):
     sv_dataset = compute_sv_with_encode_mode(echodata, waveform_mode, encode_mode)
 
+    # sv_processed = interpolate_sv(sv_dataset)
+    sv_processed = sv_dataset
     sv_enriched = enrich_sv_dataset(
-        sv_dataset,
+        sv_processed,
         echodata,
         waveform_mode=waveform_mode,
         encode_mode=encode_mode,
         depth_offset=depth_offset
     )
+
 
     # del echodata
     # sv_enriched_downsampled = regrid_dataset(sv_enriched)

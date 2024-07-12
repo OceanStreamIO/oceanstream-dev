@@ -26,7 +26,7 @@ def linear_to_db(linear: xr.DataArray) -> xr.DataArray:
 
 
 def interpolate_sv(
-    sv: Union[xr.Dataset, str, Path], method: str = "linear", with_edge_fill: bool = False
+    ds_Sv: xr.Dataset, method: str = "linear", with_edge_fill: bool = False
 ) -> xr.Dataset:
     """
     Apply masks to the Sv DataArray in the dataset and interpolate over the resulting NaN values.
@@ -43,23 +43,22 @@ def interpolate_sv(
     >> interpolate_sv(Sv, method)
     Expected Output
     """
-    # Load the dataset
-    if isinstance(sv, xr.Dataset):
-        dataset = sv
-
     # Initialize an empty list to store the processed channels
     processed_channels = []
 
     # Loop over each channel
-    for channel in sv_dataarray["channel"]:
-        channel_data = sv_dataarray.sel(channel=channel)
+    for channel in ds_Sv.Sv["channel"]:
+        channel_data = ds_Sv.Sv.sel(channel=channel)
 
         # Convert from dB to linear scale
         channel_data_linear = db_to_linear(channel_data)
 
         # Perform interpolation to fill NaN values in linear scale using Xarray's interpolate_na
         interpolated_channel_data_linear = channel_data_linear.interpolate_na(
-            dim="ping_time", method=method, use_coordinate=True
+            dim="ping_time",
+            method=method,
+            use_coordinate=True,
+            dask_gufunc_kwargs={"allow_rechunk": True},
         )
 
         if with_edge_fill:
@@ -76,9 +75,9 @@ def interpolate_sv(
     interpolated_sv = xr.concat(processed_channels, dim="channel")
 
     # Update the Sv DataArray in the dataset with the interpolated values
-    dataset["Sv"] = interpolated_sv
+    ds_Sv["Sv"] = interpolated_sv
 
-    return dataset
+    return ds_Sv
 
 
 def find_impacted_variables(

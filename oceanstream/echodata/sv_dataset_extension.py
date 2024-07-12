@@ -22,13 +22,13 @@ Refer to their respective documentation for details.
 """
 import warnings
 import numpy as np
+import xarray as xr
 
 from echopype.consolidate import add_location, add_splitbeam_angle
-from echopype.echodata.echodata import EchoData
-from xarray import Dataset
+from echopype.echodata import EchoData
 
 
-def enrich_sv_dataset(sv: Dataset, echodata: EchoData, **kwargs) -> Dataset:
+def enrich_sv_dataset(sv: xr.Dataset, echodata: EchoData, **kwargs) -> xr.Dataset:
     """
     Enhances the input `sv` dataset by adding depth, location, and split-beam angle information.
 
@@ -58,28 +58,26 @@ def enrich_sv_dataset(sv: Dataset, echodata: EchoData, **kwargs) -> Dataset:
         "return_dataset",
     ]
     splitbeam_args = {k: kwargs[k] for k in splitbeam_keys if k in kwargs}
-    enriched_sv = sv
 
     try:
-        add_depth(enriched_sv, **depth_args)
+        add_depth(sv, **depth_args)
     except Exception as e:
         warnings.warn(f"Failed to add depth due to error: {str(e)}")
 
-    # try:
-    #     enriched_sv = add_location(enriched_sv, echodata, **location_args)
-    # except Exception as e:
-    #     warnings.warn(f"Failed to add location due to error: {str(e)}")
+    try:
+        sv = add_location(sv, echodata, **location_args)
+    except Exception as e:
+        warnings.warn(f"Failed to add location due to error: {str(e)}")
 
-    # try:
-    #     add_splitbeam_angle(enriched_sv, echodata, **splitbeam_args)
-    # except Exception as e:
-    #     warnings.warn(f"Failed to add split-beam angle due to error: {str(e)}")
-    #     traceback.print_exc()
+    try:
+        add_splitbeam_angle(sv, echodata, **splitbeam_args)
+    except Exception as e:
+        warnings.warn(f"Failed to add split-beam angle due to error: {str(e)}")
 
-    return enriched_sv
+    return sv
 
 
-def add_depth(Sv: Dataset, depth_offset: float = 0, tilt: float = 0, downward: bool = True):
+def add_depth(Sv: xr.Dataset, depth_offset: float = 0, tilt: float = 0, downward: bool = True):
     """
     Given an existing Sv dataset, it adds a data variable called depth containing the depth of
     each ping.
@@ -101,11 +99,14 @@ def add_depth(Sv: Dataset, depth_offset: float = 0, tilt: float = 0, downward: b
     selected_echo_range = selected_echo_range.values.tolist()
     selected_echo_range = [mult * value * np.cos(tilt / 180 * np.pi) + depth_offset for value in selected_echo_range]
     Sv = Sv.assign_coords(range_sample=selected_echo_range)
+    min_val = np.nanmin(selected_echo_range)
+    max_val = np.nanmax(selected_echo_range)
+    Sv = Sv.sel(range_sample=slice(min_val, max_val))
 
     return Sv
 
 
-def add_seabed_depth(Sv: Dataset):
+def add_seabed_depth(Sv: xr.Dataset):
     """
     Given an existing Sv dataset with a seabed mask attached, it adds a
     data variable called seabed depth containing the location of the seabed on

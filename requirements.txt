@@ -4,4 +4,7 @@ numpy
 pydantic
 rich
 tqdm
+matplotlib
+haversine
+IPython
 git+https://github.com/OceanStreamIO/echopype-dev.git@oceanstream#egg=echopype

@@ -1,8 +1,18 @@
+import os
+
 import echopype as ep
+from adlfs import AzureBlobFileSystem
 
 
-def list_zarr_files(azfs, path):
+def list_zarr_files(path, azfs=None):
     """List all Zarr files in the Azure Blob Storage container along with their metadata."""
+
+    if azfs is None:
+        azfs = get_azfs()
+
+    if azfs is None:
+        raise ValueError("Azure Blob Storage connection string not found and no azfs instance was specified.")
+
     zarr_files = []
     for blob in azfs.ls(path, detail=True):
         if blob['type'] == 'directory' and not blob['name'].endswith('.zarr'):
@@ -16,6 +26,18 @@ def list_zarr_files(azfs, path):
             })
 
     return zarr_files
+
+
+def get_azfs():
+    """Get the Azure Blob Storage filesystem object using the connection string from environment variables."""
+    connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+
+    if not connection_string:
+        return None
+
+    azfs = AzureBlobFileSystem(connection_string=connection_string)
+
+    return azfs
 
 
 def open_zarr_store(azfs, store_name, chunks=None):

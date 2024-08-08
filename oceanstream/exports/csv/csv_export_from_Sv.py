@@ -99,6 +99,7 @@ def create_location(data: xr.Dataset, epsilon=0.00001, min_distance=0.01) -> pd.
 
     # Apply Ramer-Douglas-Peucker algorithm for thinning coordinates
     points = df[["lat", "lon"]].values
+
     thinned_points = ramer_douglas_peucker(points, epsilon)
 
     # Create a thinned DataFrame

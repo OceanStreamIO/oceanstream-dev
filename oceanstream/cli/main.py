@@ -39,6 +39,7 @@ dask.config.set({
     'distributed.comm.retry.count': 0
 })
 
+
 def initialize(settings, file_path, log_level=None):
     config_data = load_config(settings["config"])
     config_data["raw_path"] = file_path
@@ -103,6 +104,8 @@ def convert(
         output: str = typer.Option(None,
                                    help="Destination path for saving Zarr converted data. Defaults to a predefined "
                                         "directory if not specified."),
+        sonar_model: str = typer.Option(None, help="Sonar model used to collect the data",
+                                        show_choices=["AZFP", "EK60", "ES70", "EK80", "ES80", "EA640", "AD2CP"]),
         workers_count: int = typer.Option(os.cpu_count(), help="Number of CPU workers to use for processing"),
         config: str = typer.Option(None, help="Path to a configuration file"),
         log_level: str = typer.Option("WARNING", help="Set the logging level",
@@ -113,6 +116,7 @@ def convert(
     """
     settings = {
         "config": config,
+        "sonar_model": sonar_model,
         "output_folder": output or DEFAULT_OUTPUT_FOLDER
     }
 
@@ -122,6 +126,7 @@ def convert(
     try:
         if filePath.is_file():
             from oceanstream.process import convert_raw_file
+            print(f"[blue]Converting raw file {source} to Zarr...[/blue]")
             convert_raw_file(filePath, configData)
             print(
                 f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")

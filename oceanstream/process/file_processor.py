@@ -229,21 +229,34 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
             relative_path = file_path_obj.relative_to(base_path)
             relative_path = relative_path.parent
         else:
-            relative_path = file_path_obj.name
+            relative_path = None
 
         echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
+        file_name = file_path_obj.stem + ".zarr"
 
         if 'cloud_storage' in config_data:
-            file_name = file_path_obj.stem + ".zarr"
-            store = _get_chunk_store(config_data['cloud_storage'], Path(relative_path) / file_name)
+            if relative_path:
+                file_location = Path(relative_path) / file_name
+            else:
+                file_location = file_name
+            store = _get_chunk_store(config_data['cloud_storage'], file_location)
             echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
+            output_zarr_path = store
         else:
-            output_path = Path(config_data["output_folder"]) / relative_path
-            output_path.mkdir(parents=True, exist_ok=True)
-            echodata.to_zarr(save_path=output_path, overwrite=True, parallel=False)
+            if relative_path:
+                output_path = Path(config_data["output_folder"]) / relative_path
+                output_path.mkdir(parents=True, exist_ok=True)
+            else:
+                output_path = Path(config_data["output_folder"])
+
+            output_zarr_path = output_path / file_name
+            echodata.to_zarr(save_path=output_zarr_path, overwrite=True, parallel=False)
 
         if progress_queue:
             progress_queue.put(file_path)
+
+        return output_zarr_path
+
     except Exception as e:
         logging.error("Error processing file %s", file_path)
         print(Traceback())
@@ -264,7 +277,6 @@ def _get_chunk_store(storage_config, path):
         azfs = AzureBlobFileSystem(**storage_config['storage_options'])
 
         return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
-
     else:
         raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 

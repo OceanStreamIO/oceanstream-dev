@@ -40,8 +40,14 @@ def get_azfs():
     return azfs
 
 
-def open_zarr_store(azfs, store_name, chunks=None):
+def open_zarr_store(store_name, azfs=None, chunks=None):
     """Open a Zarr store from Azure Blob Storage."""
+    if azfs is None:
+        azfs = get_azfs()
+
+    if azfs is None:
+        raise ValueError("Azure Blob Storage connection string not found and no azfs instance was specified.")
+
     mapper = azfs.get_mapper(store_name)
 
     return ep.open_converted(mapper, chunks=chunks)

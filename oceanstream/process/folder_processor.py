@@ -350,11 +350,12 @@ def merge_json_files(output_folder):
 
 def from_filename(file_name):
     """Extract creation time from the file name if it follows a specific pattern."""
-    pattern = r'(\d{4}[A-Z])?-D(\d{8})-T(\d{6})\.raw'
+    # pattern = r'(\d{4}[A-Z])?-D(\d{8})-T(\d{6})\.raw'
+    pattern = r'.*-D(\d{8})-T(\d{6})(-\d+)?\.raw'
     match = re.search(pattern, file_name)
     if match:
-        date_str = match.group(2)
-        time_str = match.group(3)
+        date_str = match.group(1)
+        time_str = match.group(2)
         creation_time = datetime.strptime(date_str + time_str, '%Y%m%d%H%M%S')
         return creation_time
 

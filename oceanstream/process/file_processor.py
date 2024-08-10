@@ -221,45 +221,46 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
 def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None):
     logging.debug("Starting processing of file: %s", file_path)
 
-    try:
-        file_path_obj = Path(file_path)
-        file_config_data = {**config_data, 'raw_path': file_path_obj}
 
-        if base_path:
-            relative_path = file_path_obj.relative_to(base_path)
-            relative_path = relative_path.parent
+    file_path_obj = Path(file_path)
+    file_config_data = {**config_data, 'raw_path': file_path_obj}
+
+    if base_path:
+        relative_path = file_path_obj.relative_to(base_path)
+        relative_path = relative_path.parent
+    else:
+        relative_path = None
+
+    echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
+    file_name = file_path_obj.stem + ".zarr"
+
+    if 'cloud_storage' in config_data:
+        if relative_path:
+            file_location = Path(relative_path) / file_name
         else:
-            relative_path = None
-
-        echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
-        file_name = file_path_obj.stem + ".zarr"
-
-        if 'cloud_storage' in config_data:
-            if relative_path:
-                file_location = Path(relative_path) / file_name
-            else:
-                file_location = file_name
-            store = _get_chunk_store(config_data['cloud_storage'], file_location)
-            echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
-            output_zarr_path = store
+            file_location = file_name
+        store = _get_chunk_store(config_data['cloud_storage'], file_location)
+        echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
+        output_zarr_path = store
+        output_dest = config_data['cloud_storage']['container_name'] + "/" + file_location
+    else:
+        if relative_path:
+            output_path = Path(config_data["output_folder"]) / relative_path
+            output_path.mkdir(parents=True, exist_ok=True)
         else:
-            if relative_path:
-                output_path = Path(config_data["output_folder"]) / relative_path
-                output_path.mkdir(parents=True, exist_ok=True)
-            else:
-                output_path = Path(config_data["output_folder"])
+            output_path = Path(config_data["output_folder"])
 
-            output_zarr_path = output_path / file_name
-            echodata.to_zarr(save_path=output_zarr_path, overwrite=True, parallel=False)
+        output_zarr_path = output_path / file_name
+        output_dest = output_zarr_path
+        echodata.to_zarr(save_path=output_zarr_path, overwrite=True, parallel=False)
 
-        if progress_queue:
-            progress_queue.put(file_path)
+    if progress_queue:
+        progress_queue.put(file_path)
 
-        return output_zarr_path
+    print(
+        f"[blue]✅ Converted raw file {file_path} to Zarr and wrote output to: {output_dest} [/blue]")
 
-    except Exception as e:
-        logging.error("Error processing file %s", file_path)
-        print(Traceback())
+    return output_zarr_path
 
 
 def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):

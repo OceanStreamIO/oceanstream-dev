@@ -1,3 +1,4 @@
+import traceback
 from asyncio import CancelledError
 
 import typer
@@ -128,8 +129,6 @@ def convert(
             from oceanstream.process import convert_raw_file
             print(f"[blue]Converting raw file {source} to Zarr...[/blue]")
             convert_raw_file(filePath, configData)
-            print(
-                f"[blue]✅ Converted raw file {source} to Zarr and wrote output to: {configData['output_folder']} [/blue]")
         elif filePath.is_dir():
             from oceanstream.process import convert_raw_files
             convert_raw_files(configData, workers_count=workers_count)
@@ -138,8 +137,12 @@ def convert(
     except KeyboardInterrupt:
         logging.info("KeyboardInterrupt received, terminating processes...")
     except Exception as e:
-        logging.exception("Error processing folder %s", configData['raw_path'])
-        print(Traceback())
+        if filePath.is_file():
+            logging.error("Error processing file %s", filePath)
+        else:
+            logging.exception("Error processing folder %s", configData['raw_path'])
+
+        logging.error(traceback.format_exc())
 
 
 @app.command()

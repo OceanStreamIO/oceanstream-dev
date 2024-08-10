@@ -16,7 +16,7 @@ def list_zarr_files(path, azfs=None):
     zarr_files = []
     for blob in azfs.ls(path, detail=True):
         if blob['type'] == 'directory' and not blob['name'].endswith('.zarr'):
-            subdir_files = list_zarr_files(azfs, blob['name'])
+            subdir_files = list_zarr_files(blob['name'], azfs)
             zarr_files.extend(subdir_files)
         elif blob['name'].endswith('.zarr'):
             zarr_files.append({

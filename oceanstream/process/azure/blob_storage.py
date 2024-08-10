@@ -28,16 +28,19 @@ def list_zarr_files(path, azfs=None):
     return zarr_files
 
 
-def get_azfs():
+def get_azfs(storage_config=None):
     """Get the Azure Blob Storage filesystem object using the connection string from environment variables."""
     connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
 
-    if not connection_string:
-        return None
+    if connection_string:
+        azfs = AzureBlobFileSystem(connection_string=connection_string)
+        return azfs
 
-    azfs = AzureBlobFileSystem(connection_string=connection_string)
+    if storage_config and storage_config['storage_type'] == 'azure':
+        azfs = AzureBlobFileSystem(**storage_config['storage_options'])
+        return azfs
 
-    return azfs
+    return None
 
 
 def open_zarr_store(store_name, azfs=None, chunks=None):

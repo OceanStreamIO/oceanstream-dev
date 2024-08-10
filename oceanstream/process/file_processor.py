@@ -6,7 +6,6 @@ import time
 import traceback
 import shutil
 from asyncio import CancelledError
-
 import echopype as ep
 
 import xarray as xr
@@ -221,7 +220,6 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
 def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None):
     logging.debug("Starting processing of file: %s", file_path)
 
-
     file_path_obj = Path(file_path)
     file_config_data = {**config_data, 'raw_path': file_path_obj}
 
@@ -273,13 +271,13 @@ def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, o
 
 
 def _get_chunk_store(storage_config, path):
-    if storage_config['storage_type'] == 'azure':
-        from adlfs import AzureBlobFileSystem
-        azfs = AzureBlobFileSystem(**storage_config['storage_options'])
+    from oceanstream.process.azure.blob_storage import get_azfs
+    azfs = get_azfs(storage_config)
 
+    if azfs:
         return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
-    else:
-        raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
+
+    raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 
 
 def _get_chunk_sizes(var_dims, chunk_sizes):

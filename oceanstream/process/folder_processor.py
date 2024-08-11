@@ -192,7 +192,13 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
         if sonar_model is None and config_data['sonar_model'] is None:
             config_data['sonar_model'] = sonar_model
 
-        progress_bar = tqdm(total=len(sorted_files), desc="Processing Files", unit="file", ncols=100)
+        progress_bar = tqdm(
+            total=len(sorted_files),
+            desc="Processing Files",
+            unit="file",
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} files [per file: {elapsed}, {rate_fmt}]",
+            leave=True
+        )
 
         with Manager() as manager:
             progress_counter = manager.Value('i', 0)
@@ -211,10 +217,16 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
 
             pool.close()
 
-            while progress_counter.value < len(sorted_files):
+            while True:
                 with counter_lock:
-                    progress_bar.n = progress_counter.value
+                    progress_value = progress_counter.value
+                progress_bar.n = progress_value
                 progress_bar.refresh()
+
+                # Check if all files have been processed
+                if progress_value >= len(sorted_files):
+                    break
+
             pool.join()
 
             with counter_lock:

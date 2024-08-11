@@ -239,7 +239,7 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
             file_location = file_name
         store = _get_chunk_store(config_data['cloud_storage'], file_location)
         echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
-        output_zarr_path = store
+
         output_dest = config_data['cloud_storage']['container_name'] + "/" + file_location
     else:
         if relative_path:
@@ -248,17 +248,15 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
         else:
             output_path = Path(config_data["output_folder"])
 
-        output_zarr_path = output_path / file_name
-        output_dest = output_zarr_path
-        echodata.to_zarr(save_path=output_zarr_path, overwrite=True, parallel=False)
+        output_dest = output_path / file_name
+        echodata.to_zarr(save_path=output_dest, overwrite=True, parallel=False)
 
     if progress_queue:
         progress_queue.put(file_path)
 
-    print(
-        f"[blue]✅ Converted raw file {file_path} to Zarr and wrote output to: {output_dest} [/blue]")
+    logging.debug("Finished processing of file: %s", file_path)
 
-    return output_zarr_path
+    return output_dest
 
 
 def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):
@@ -274,8 +272,17 @@ def _get_chunk_store(storage_config, path):
     from oceanstream.process.azure.blob_storage import get_azfs
     azfs = get_azfs(storage_config)
 
+    container_name = storage_config['container_name']
+
+    if not azfs.exists(container_name):
+        try:
+            azfs.mkdir(container_name)
+        except Exception as e:
+            logging.error(f"Error creating container {container_name}: {e}")
+            raise
+
     if azfs:
-        return azfs.get_mapper(f"{storage_config['container_name']}/{path}")
+        return azfs.get_mapper(f"{container_name}/{path}")
 
     raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 

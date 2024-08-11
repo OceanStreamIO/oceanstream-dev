@@ -217,7 +217,7 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
         logging.exception(f"Error processing file {config_data['raw_path']}: {e}")
 
 
-def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None):
+def convert_raw_file(file_path, config_data, base_path=None, progress_counter=None, counter_lock=None):
     logging.debug("Starting processing of file: %s", file_path)
 
     file_path_obj = Path(file_path)
@@ -251,8 +251,8 @@ def convert_raw_file(file_path, config_data, base_path=None, progress_queue=None
         output_dest = output_path / file_name
         echodata.to_zarr(save_path=output_dest, overwrite=True, parallel=False)
 
-    if progress_queue:
-        progress_queue.put(file_path)
+    with counter_lock:
+        progress_counter.value += 1
 
     logging.debug("Finished processing of file: %s", file_path)
 

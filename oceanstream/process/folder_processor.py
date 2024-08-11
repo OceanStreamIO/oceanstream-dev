@@ -192,28 +192,39 @@ def convert_raw_files(config_data, workers_count=os.cpu_count()):
         if sonar_model is None and config_data['sonar_model'] is None:
             config_data['sonar_model'] = sonar_model
 
+        progress_bar = tqdm(total=len(sorted_files), desc="Processing Files", unit="file", ncols=100)
+
         with Manager() as manager:
+            progress_counter = manager.Value('i', 0)
+            counter_lock = manager.Lock()
             progress_queue = manager.Queue()
             pool = Pool(processes=workers_count)
 
             # Partial function with config_data, progress_queue and other arguments
-            process_func = partial(convert_raw_file, config_data=config_data, progress_queue=progress_queue,
-                                   base_path=dir_path)
-
-            progress_updater = Process(target=update_progress, args=(progress_queue, len(sorted_files), log_level))
-            progress_updater.start()
+            process_func = partial(convert_raw_file, config_data=config_data, base_path=dir_path,
+                                   progress_counter=progress_counter, counter_lock=counter_lock)
 
             for file in sorted_files:
                 pool.apply_async(process_func, args=(file,))
+                # print("Processing file: ", file)
                 logging.debug("Started async processing for file: %s", file)
 
             pool.close()
+
+            while progress_counter.value < len(sorted_files):
+                with counter_lock:
+                    progress_bar.n = progress_counter.value
+                progress_bar.refresh()
             pool.join()
+
+            with counter_lock:
+                progress_bar.n = progress_counter.value
+            progress_bar.refresh()
             print(f"[green]✅ All files have been converted.[/green]")
 
             # Wait for the progress updater to finish
-            progress_queue.put(None)  # Signal the progress updater to finish
-            progress_updater.join()
+
+            progress_bar.close()
     except KeyboardInterrupt:
         logging.info("KeyboardInterrupt received, terminating processes...")
         if pool:

@@ -126,9 +126,10 @@ def convert(
 
     try:
         if filePath.is_file():
-            from oceanstream.process import convert_raw_file
+            from oceanstream.convert import convert_raw_file
             print(f"[blue]Converting raw file {source} to Zarr...[/blue]")
             convert_raw_file(filePath, configData)
+            print("✅ The file has been converted successfully.")
         elif filePath.is_dir():
             from oceanstream.process import convert_raw_files
             convert_raw_files(configData, workers_count=workers_count)
@@ -215,6 +216,7 @@ def compute_sv(
         depth_offset: float = typer.Option(0.0, help="Depth offset for the echogram plot"),
         waveform_mode: str = typer.Option("CW", help="Waveform mode, can be either CW or BB",
                                           show_choices=["CW", "BB"]),
+        encode_mode: str = typer.Option("power", help="Encode mode, can be either power or complex", show_choices=["power", "complex"]),
         config: str = typer.Option(None, help="Path to a configuration file"),
         log_level: str = typer.Option("WARNING", help="Set the logging level",
                                       show_choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
@@ -258,6 +260,7 @@ def compute_sv(
                                                chunks=chunks,
                                                plot_echogram=plot_echogram,
                                                waveform_mode=waveform_mode,
+                                               encode_mode=encode_mode,
                                                depth_offset=depth_offset)
 
                 status.stop()

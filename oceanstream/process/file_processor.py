@@ -48,12 +48,11 @@ def compute_and_export_single_file(config_data, **kwargs):
     file_path = config_data["raw_path"]
     chunks = kwargs.get("chunks")
     echodata = ep.open_converted(file_path, chunks=chunks)
-    print(f"File {file_path} opened successfully.")
 
     try:
         file_data = []
         output_path, ds_processed, echogram_files = compute_Sv_to_zarr(echodata, config_data, **kwargs)
-        gps_data = export_location_json(ds_processed)
+        # gps_data = export_location_json(ds_processed)
 
         output_message = {
             "filename": str(output_path),  # Convert PosixPath to string
@@ -76,7 +75,7 @@ def compute_and_export_single_file(config_data, **kwargs):
         gps_json_file_path = Path(config_data["output_folder"]) / "gps_data.json"
 
         save_output_data(output_message, json_file_path)
-        append_gps_data(gps_data, gps_json_file_path, str(output_path))
+        # append_gps_data(gps_data, gps_json_file_path, str(output_path))
 
         echogram_folder = Path(config_data["output_folder"]) / "echograms"
         echogram_folder.mkdir(parents=True, exist_ok=True)
@@ -116,7 +115,13 @@ def compute_Sv_to_zarr(echodata, config_data, base_path=None, chunks=None, plot_
         str: Path to the zarr file.
     """
     waveform_mode = kwargs.get("waveform_mode", "CW")
-    encode_mode = waveform_mode == "CW" and "power" or "complex"
+    if encode_mode := kwargs.pop("encode_mode", None):
+        encode_mode = encode_mode.lower()
+    else:
+        encode_mode = waveform_mode == "CW" and "power" or "complex"
+
+    echodata["Vendor_specific"] = echodata["Vendor_specific"].isel(channel=slice(1))
+
     Sv = compute_sv(echodata, encode_mode=encode_mode, **kwargs)
 
     ds_processed = Sv
@@ -217,74 +222,15 @@ async def process_raw_file_with_progress(config_data, plot_echogram, waveform_mo
         logging.exception(f"Error processing file {config_data['raw_path']}: {e}")
 
 
-def convert_raw_file(file_path, config_data, base_path=None, progress_counter=None, counter_lock=None):
-    logging.debug("Starting processing of file: %s", file_path)
-
-    file_path_obj = Path(file_path)
-    file_config_data = {**config_data, 'raw_path': file_path_obj}
-
-    if base_path:
-        relative_path = file_path_obj.relative_to(base_path)
-        relative_path = relative_path.parent
-    else:
-        relative_path = None
-
-    echodata, encode_mode = read_file(file_config_data, use_swap=True, skip_integrity_check=True)
-    file_name = file_path_obj.stem + ".zarr"
-
-    if 'cloud_storage' in config_data:
-        if relative_path:
-            file_location = Path(relative_path) / file_name
-        else:
-            file_location = file_name
-        store = _get_chunk_store(config_data['cloud_storage'], file_location)
-        echodata.to_zarr(save_path=store, overwrite=True, parallel=False)
-
-        output_dest = config_data['cloud_storage']['container_name'] + "/" + file_location
-    else:
-        if relative_path:
-            output_path = Path(config_data["output_folder"]) / relative_path
-            output_path.mkdir(parents=True, exist_ok=True)
-        else:
-            output_path = Path(config_data["output_folder"])
-
-        output_dest = output_path / file_name
-        echodata.to_zarr(save_path=output_dest, overwrite=True, parallel=False)
-
-    with counter_lock:
-        progress_counter.value += 1
-
-    logging.debug("Finished processing of file: %s", file_path)
-
-    return output_dest
-
-
 def write_zarr_file(zarr_path, zarr_file_name, ds_processed, config_data=None, output_path=None):
     if 'cloud_storage' in config_data:
-        store = _get_chunk_store(config_data['cloud_storage'], Path(zarr_path) / zarr_file_name)
+        from cloud import get_chunk_store
+
+        store = get_chunk_store(config_data['cloud_storage'], Path(zarr_path) / zarr_file_name)
     else:
         store = os.path.join(output_path, zarr_file_name)
 
     ds_processed.to_zarr(store, mode='w')
-
-
-def _get_chunk_store(storage_config, path):
-    from oceanstream.process.azure.blob_storage import get_azfs
-    azfs = get_azfs(storage_config)
-
-    container_name = storage_config['container_name']
-
-    if not azfs.exists(container_name):
-        try:
-            azfs.mkdir(container_name)
-        except Exception as e:
-            logging.error(f"Error creating container {container_name}: {e}")
-            raise
-
-    if azfs:
-        return azfs.get_mapper(f"{container_name}/{path}")
-
-    raise ValueError(f"Unsupported storage type: {storage_config['storage_type']}")
 
 
 def _get_chunk_sizes(var_dims, chunk_sizes):

@@ -104,7 +104,6 @@ def compute_sv(echodata: EchoData, **kwargs) -> xr.Dataset:
                             {list(SupportedSonarModelsForSv)}."
         )
     # Compute Sv
-    print(f"Computing Sv for {sonar_model} sonar model...", kwargs)
     Sv = ep.calibrate.compute_Sv(echodata, **kwargs)
     # Check if the computed Sv is empty
     if Sv["Sv"].values.size == 0:

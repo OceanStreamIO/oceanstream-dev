@@ -26,7 +26,7 @@ from tqdm.auto import tqdm
 from .combine_zarr import read_zarr_files
 from .process import compute_sv
 from .processed_data_io import write_processed
-from .file_processor import convert_raw_file, compute_single_file, compute_and_export_single_file, \
+from .file_processor import compute_single_file, compute_and_export_single_file, \
     export_location_from_Sv_dataset
 
 # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -130,15 +130,6 @@ def print_call_stack():
         print(f"File: {frame.filename}, Line: {frame.lineno}, Function: {frame.function}")
 
 
-def signal_handler(sig, frame):
-    global pool
-    print('Terminating processes...')
-    if pool:
-        pool.terminate()
-        pool.join()
-    sys.exit(0)
-
-
 def find_raw_files(base_dir):
     raw_files = []
     for root, dirs, files in os.walk(base_dir):
@@ -158,6 +149,8 @@ def update_convert_raw(pgr_queue, pb):
 
 def convert_raw_files(config_data, workers_count=os.cpu_count()):
     global pool
+
+    from oceanstream.convert import convert_raw_file
 
     try:
         dir_path = config_data['raw_path']
@@ -390,4 +383,13 @@ def from_filename(file_name):
     return None
 
 
-signal.signal(signal.SIGINT, signal_handler)
+# def signal_handler(sig, frame):
+#     global pool
+#     print('Terminating processes...')
+#     if pool:
+#         pool.terminate()
+#         pool.join()
+#     sys.exit(0)
+#
+#
+# signal.signal(signal.SIGINT, signal_handler)

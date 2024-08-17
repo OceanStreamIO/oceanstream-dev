@@ -5,7 +5,7 @@ import sys
 
 from pathlib import Path
 from oceanstream.settings import load_config
-from oceanstream.process import convert_raw_file, convert_raw_files, compute_single_file
+from oceanstream.process import convert_raw_files, compute_single_file
 
 DEFAULT_OUTPUT_FOLDER = "output"
 DEFAULT_SONAR_MODEL = "EK60"
@@ -80,32 +80,32 @@ def process_raw_file(source, output=None, sonar_model=None, plot_echogram=False,
         sys.exit(1)
 
 
-def convert(source, output=None, base_path=None, workers_count=None, config=None, log_level="WARNING", chunks=None):
-    logging.debug("Starting convert function")
-    settings = {
-        "output_folder": output or DEFAULT_OUTPUT_FOLDER
-    }
-
-    if config is not None:
-        settings.update(config)
-
-    file_path = Path(source)
-    config_data = initialize(settings, file_path, log_level=log_level)
-
-    if chunks:
-        config_data['chunks'] = chunks
-    else:
-        config_data['chunks'] = config_data.get('base_chunk_sizes', None)
-
-    if file_path.is_file():
-        logging.debug(f"Converting raw file: {file_path}")
-        convert_raw_file(file_path, config_data, base_path=base_path)
-        logging.info(f"Converted raw file {source} to Zarr and wrote output to: {config_data['output_folder']}")
-    elif file_path.is_dir():
-        logging.debug(f"Converting raw files in directory: {file_path}")
-        convert_raw_files(config_data, workers_count=workers_count)
-    else:
-        logging.error(f"The provided path '{source}' is not a valid file/folder.")
+# def convert(source, output=None, base_path=None, workers_count=None, config=None, log_level="WARNING", chunks=None):
+#     logging.debug("Starting convert function")
+#     settings = {
+#         "output_folder": output or DEFAULT_OUTPUT_FOLDER
+#     }
+#
+#     if config is not None:
+#         settings.update(config)
+#
+#     file_path = Path(source)
+#     config_data = initialize(settings, file_path, log_level=log_level)
+#
+#     if chunks:
+#         config_data['chunks'] = chunks
+#     else:
+#         config_data['chunks'] = config_data.get('base_chunk_sizes', None)
+#
+#     if file_path.is_file():
+#         logging.debug(f"Converting raw file: {file_path}")
+#         convert_raw_file(file_path, config_data, base_path=base_path)
+#         logging.info(f"Converted raw file {source} to Zarr and wrote output to: {config_data['output_folder']}")
+#     elif file_path.is_dir():
+#         logging.debug(f"Converting raw files in directory: {file_path}")
+#         convert_raw_files(config_data, workers_count=workers_count)
+#     else:
+#         logging.error(f"The provided path '{source}' is not a valid file/folder.")
 
 
 def combine(source, output=None, config=None, log_level="WARNING", chunks=None):

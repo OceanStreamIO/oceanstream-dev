@@ -1,4 +1,6 @@
 import logging
+import sys
+
 from pathlib import Path
 from oceanstream.echodata import read_file
 

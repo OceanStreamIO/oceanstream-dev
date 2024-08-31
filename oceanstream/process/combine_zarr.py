@@ -78,8 +78,10 @@ def combine_zarr_files(input_folder, zarr_output_file=None, chunks=None):
 
 def from_filename(file_name):
     """Extract creation time from the file name if it follows a specific pattern."""
-    pattern = r'(\d{4}[A-Z])?-D(\d{8})-T(\d{6})'
+    # pattern = r'(\d{4}[A-Z])?-D(\d{8})-T(\d{6})'
+    pattern = r'(\d{4}[A-Z])?-?D(\d{8})-T(\d{6})$'
     match = re.search(pattern, file_name)
+    
     if match:
         date_str = match.group(2)
         time_str = match.group(3)
